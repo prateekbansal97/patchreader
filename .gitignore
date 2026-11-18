@@ -1,0 +1,7 @@
+build/
+patchreader
+patchreader-asan
+*.dSYM/
+*.patch
+.DS_Store
+.idea/
