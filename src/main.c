@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "patch.h"
 #include "util.h"
 
 #define PR_VERSION "0.1.0"
@@ -61,11 +62,24 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    size_t lines = 0;
-    for (size_t k = 0; k < buf.len; k++)
-        if (buf.data[k] == '\n') lines++;
-    if (buf.len > 0 && buf.data[buf.len - 1] != '\n') lines++;
-    printf("read %zu bytes, %zu lines\n", buf.len, lines);
+    Patch patch;
+    ParseError perr;
+    if (patch_parse(&patch, buf.data, buf.len, &perr) != 0) {
+        if (perr.line)
+            fprintf(stderr, "patchreader: %s:%zu: %s\n", path, perr.line, perr.msg);
+        else
+            fprintf(stderr, "patchreader: %s: %s\n", path, perr.msg);
+        patch_free(&patch);
+        buf_free(&buf);
+        return 1;
+    }
+    for (size_t k = 0; k < patch.files.len; k++) {
+        const FileDiff *f = vec_at(&patch.files, k);
+        printf("%c %s  +%zu -%zu  %zu hunk(s)%s\n", diffstatus_letter(f->status),
+               filediff_path(f), f->adds, f->dels, f->hunks.len,
+               f->is_binary ? "  [binary]" : "");
+    }
+    patch_free(&patch);
 
     buf_free(&buf);
     return 0;
