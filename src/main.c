@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "model.h"
 #include "patch.h"
+#include "text.h"
 #include "util.h"
 
 #define PR_VERSION "0.1.0"
@@ -13,15 +15,46 @@ static void usage(FILE *out) {
           "Read-only terminal viewer for .patch / .diff files.\n"
           "\n"
           "options:\n"
+          "  --dump         print every file's rows as plain text and exit\n"
           "  -h, --help     show this help\n"
           "  -V, --version  show version\n",
           out);
 }
 
+static void dump_file(const Patch *patch, const FileDiff *f) {
+    Model m;
+    model_build(&m, patch, f);
+    printf("=== %c %s\n", diffstatus_letter(f->status), filediff_path(f));
+    Buf line;
+    buf_init(&line);
+    for (size_t k = 0; k < m.rows.len; k++) {
+        const Row *r = vec_at(&m.rows, k);
+        buf_clear(&line);
+        text_window(&line, r->text, r->len, 0, SIZE_MAX);
+        if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) {
+            printf("%s\n", line.data);
+            continue;
+        }
+        char sign = r->kind == ROW_ADD ? '+' : r->kind == ROW_DEL ? '-' : ' ';
+        if (r->old_no) printf("%*zu ", (int)m.old_w, r->old_no);
+        else printf("%*s ", (int)m.old_w, "");
+        if (r->new_no) printf("%*zu ", (int)m.new_w, r->new_no);
+        else printf("%*s ", (int)m.new_w, "");
+        printf("%c %s%s\n", sign, line.data, r->no_eol ? "  [no newline]" : "");
+    }
+    buf_free(&line);
+    model_free(&m);
+}
+
 int main(int argc, char **argv) {
+    bool dump = false;
     int i = 1;
     for (; i < argc; i++) {
         const char *a = argv[i];
+        if (strcmp(a, "--dump") == 0) {
+            dump = true;
+            continue;
+        }
         if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
             usage(stdout);
             return 0;
@@ -75,6 +108,10 @@ int main(int argc, char **argv) {
     }
     for (size_t k = 0; k < patch.files.len; k++) {
         const FileDiff *f = vec_at(&patch.files, k);
+        if (dump) {
+            dump_file(&patch, f);
+            continue;
+        }
         printf("%c %s  +%zu -%zu  %zu hunk(s)%s\n", diffstatus_letter(f->status),
                filediff_path(f), f->adds, f->dels, f->hunks.len,
                f->is_binary ? "  [binary]" : "");
