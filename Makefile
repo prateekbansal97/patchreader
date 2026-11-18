@@ -11,6 +11,9 @@ TEST_BIN := $(patsubst tests/%.c,build/tests/%,$(TESTS))
 
 .PHONY: all asan test clean
 
+.PHONY: ide
+ide: patchreader patchreader-asan $(TEST_BIN)
+
 all: patchreader
 
 patchreader: src/main.c $(LIB_SRC) $(HDRS)
