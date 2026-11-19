@@ -1,11 +1,13 @@
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "model.h"
 #include "input.h"
 #include "patch.h"
+#include "render.h"
 #include "term.h"
 #include "text.h"
 #include "util.h"
@@ -50,52 +52,88 @@ static void dump_file(const Patch *patch, const FileDiff *f) {
     model_free(&m);
 }
 
-/* One full-width line at a screen row (1-based), clipped to the terminal. */
-static void put_line(Buf *f, int row, int cols, const char *s, bool reverse) {
-    char pos[32];
-    int k = snprintf(pos, sizeof pos, "\x1b[%d;1H", row);
-    if (k > 0) buf_append(f, pos, (size_t)k);
-    if (reverse) buf_puts(f, "\x1b[7m");
-    size_t shown = text_window(f, s, strlen(s), 0, (size_t)cols);
-    if (reverse) {
-        for (size_t i = shown; i < (size_t)cols; i++) buf_putc(f, ' ');
-        buf_puts(f, "\x1b[0m");
-    } else {
-        buf_puts(f, "\x1b[K");
-    }
+static bool want_truecolor(void) {
+    const char *c = getenv("COLORTERM");
+    return c && (strstr(c, "truecolor") || strstr(c, "24bit"));
 }
 
-/* Interim full-screen loop: proves the terminal layer works. */
-static int run_ui(const Patch *patch, const char *path) {
+static size_t scroll_down(size_t top, size_t n, size_t max_top) {
+    return n > max_top - top ? max_top : top + n;
+}
+
+static size_t scroll_up(size_t top, size_t n) {
+    return top > n ? top - n : 0;
+}
+
+static int run_ui(const Patch *patch) {
+    Model m;
+    model_build(&m, patch, vec_at(&patch->files, 0));
     if (!term_init()) {
         fprintf(stderr, "patchreader: cannot open the terminal\n");
+        model_free(&m);
         return 1;
     }
+
+    RenderView v;
+    memset(&v, 0, sizeof v);
+    v.model = &m;
+    v.file_count = patch->files.len;
+    v.truecolor = want_truecolor();
+
     Buf frame;
     buf_init(&frame);
-    char last[64] = "(none)";
-    for (;;) {
-        int rows, cols;
-        term_size(&rows, &cols);
-        char line[256];
+    bool clear = true;
+    bool quit = false;
+    while (!quit) {
+        term_size(&v.rows, &v.cols);
+        size_t max_top = render_max_top(&m, v.rows);
+        if (v.top > max_top) v.top = max_top;
 
         buf_clear(&frame);
-        buf_puts(&frame, "\x1b[2J");
-        snprintf(line, sizeof line, " patchreader  %s", path);
-        put_line(&frame, 1, cols, line, true);
-        snprintf(line, sizeof line, " %zu file(s), terminal %dx%d", patch->files.len, cols, rows);
-        put_line(&frame, 3, cols, line, false);
-        snprintf(line, sizeof line, " last key: %s", last);
-        put_line(&frame, 5, cols, line, false);
-        put_line(&frame, rows, cols, " q quit   (read-only)", true);
+        if (clear) {
+            buf_puts(&frame, "\x1b[2J");
+            clear = false;
+        }
+        render_frame(&frame, &v);
         term_write(frame.data, frame.len);
 
+        size_t body = render_body_rows(v.rows);
+        size_t page = body > 1 ? body - 1 : 1;
+        size_t half = body > 1 ? body / 2 : 1;
+
         Key k = term_read_key();
-        if (k.type == KEY_EOF || (k.type == KEY_CHAR && k.ch == 'q')) break;
-        key_describe(k, last, sizeof last);
+        switch (k.type) {
+        case KEY_EOF: quit = true; break;
+        case KEY_RESIZE: clear = true; break;
+        case KEY_DOWN:
+        case KEY_ENTER: v.top = scroll_down(v.top, 1, max_top); break;
+        case KEY_UP: v.top = scroll_up(v.top, 1); break;
+        case KEY_PGDN: v.top = scroll_down(v.top, page, max_top); break;
+        case KEY_PGUP: v.top = scroll_up(v.top, page); break;
+        case KEY_HOME: v.top = 0; break;
+        case KEY_END: v.top = max_top; break;
+        case KEY_CTRL:
+            if (k.ch == 'd') v.top = scroll_down(v.top, half, max_top);
+            else if (k.ch == 'u') v.top = scroll_up(v.top, half);
+            break;
+        case KEY_CHAR:
+            switch (k.ch) {
+            case 'q': quit = true; break;
+            case 'j': v.top = scroll_down(v.top, 1, max_top); break;
+            case 'k': v.top = scroll_up(v.top, 1); break;
+            case ' ': v.top = scroll_down(v.top, page, max_top); break;
+            case 'b': v.top = scroll_up(v.top, page); break;
+            case 'g': v.top = 0; break;
+            case 'G': v.top = max_top; break;
+            default: break;
+            }
+            break;
+        default: break;
+        }
     }
     term_restore();
     buf_free(&frame);
+    model_free(&m);
     return 0;
 }
 
@@ -165,7 +203,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (!dump && !list && isatty(STDOUT_FILENO)) {
-        int rc = run_ui(&patch, path);
+        int rc = run_ui(&patch);
         patch_free(&patch);
         buf_free(&buf);
         return rc;
