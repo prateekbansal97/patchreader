@@ -49,6 +49,17 @@ size_t render_max_top(const Model *m, int rows) {
     return m->rows.len > h ? m->rows.len - h : 0;
 }
 
+size_t render_gutter_width(const Model *m) {
+    return m->old_w + m->new_w + 3;
+}
+
+size_t render_max_left(const Model *m, int cols) {
+    size_t gw = render_gutter_width(m);
+    if (cols <= 0 || (size_t)cols <= gw) return 0;
+    size_t text_cols = (size_t)cols - gw;
+    return m->max_cols > text_cols ? m->max_cols - text_cols : 0;
+}
+
 static void pad(Buf *o, size_t n) {
     for (; n > 0; n--) buf_putc(o, ' ');
 }
@@ -91,7 +102,7 @@ static void draw_header(Buf *o, const Theme *t, const RenderView *v, size_t cols
 }
 
 static void draw_bar(Buf *o, const Theme *t, const RenderView *v, size_t cols) {
-    static const char left[] = " q quit   j/k scroll   PgUp/PgDn page   g/G top/bottom";
+    static const char left[] = " q quit   j/k scroll   [/] file   {/} hunk   h/l pan";
     size_t total = v->model->rows.len;
     size_t h = render_body_rows(v->rows);
     size_t bottom;

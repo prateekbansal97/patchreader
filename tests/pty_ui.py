@@ -114,6 +114,29 @@ s.mark(); s.send(b"\x1b[F")
 check("End key", s.wait_for(b"line 100"))
 scrolls_up(b"\x1b[H", "Home key")
 
+# files: the header follows the file, the view resets to the top
+s.mark(); s.send(b"G")
+s.wait_for(b"line 100")
+for send, name in ((b"]", "]"), (b"\t", "Tab")):
+    s.mark(); s.send(send)
+    check("next file: " + name, s.wait_for(b"2/3 files") and b"src/a.c" in s.out and b"line 100" not in s.out and b"@@ -1,2 +1,2 @@" in s.out, repr(s.out[-100:]))
+    s.mark(); s.send(b"[" if name == "]" else b"\x1b[Z")
+    check("previous file: " + name, s.wait_for(b"1/3 files") and b"big.txt" in s.out and b"@@ -0,0 +1,100 @@" in s.out, repr(s.out[-100:]))
+s.send(b"]]")
+check("last file", s.wait_for(b"3/3 files") and b"src/b.c" in s.out)
+s.mark(); s.send(b"]")
+s.pump(0.3)
+check("next file at the end does nothing", b"4/3" not in s.out)
+s.send(b"[[")
+s.mark(); s.send(b"g")
+s.wait_for(b"1/3 files")
+
+# hunks: the second file below has a single hunk, so use a long one-file jump
+s.mark(); s.send(b"}")
+s.pump(0.3)
+check("} with a single hunk stays", b"line 100" not in s.out)
+s.send(b"{")
+
 # keys with no action must not break anything
 for send in (b"x", b"\x1b[1;5C", b"\t", b"\x1b[Z", b"\x7f", b"\x1b[3~", "\u00e9".encode()):
     s.send(send)

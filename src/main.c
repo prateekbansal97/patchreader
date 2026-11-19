@@ -4,8 +4,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "model.h"
 #include "input.h"
+#include "model.h"
+#include "nav.h"
 #include "patch.h"
 #include "render.h"
 #include "term.h"
@@ -57,14 +58,6 @@ static bool want_truecolor(void) {
     return c && (strstr(c, "truecolor") || strstr(c, "24bit"));
 }
 
-static size_t scroll_down(size_t top, size_t n, size_t max_top) {
-    return n > max_top - top ? max_top : top + n;
-}
-
-static size_t scroll_up(size_t top, size_t n) {
-    return top > n ? top - n : 0;
-}
-
 static int run_ui(const Patch *patch) {
     Model m;
     model_build(&m, patch, vec_at(&patch->files, 0));
@@ -74,20 +67,23 @@ static int run_ui(const Patch *patch) {
         return 1;
     }
 
+    Nav nav;
+    nav_init(&nav, patch->files.len);
     RenderView v;
     memset(&v, 0, sizeof v);
-    v.model = &m;
     v.file_count = patch->files.len;
     v.truecolor = want_truecolor();
 
     Buf frame;
     buf_init(&frame);
     bool clear = true;
-    bool quit = false;
-    while (!quit) {
+    while (!nav.quit) {
         term_size(&v.rows, &v.cols);
-        size_t max_top = render_max_top(&m, v.rows);
-        if (v.top > max_top) v.top = max_top;
+        nav_clamp(&nav, &m, v.rows, v.cols);
+        v.model = &m;
+        v.file_idx = nav.file;
+        v.top = nav.top;
+        v.left = nav.left;
 
         buf_clear(&frame);
         if (clear) {
@@ -97,38 +93,11 @@ static int run_ui(const Patch *patch) {
         render_frame(&frame, &v);
         term_write(frame.data, frame.len);
 
-        size_t body = render_body_rows(v.rows);
-        size_t page = body > 1 ? body - 1 : 1;
-        size_t half = body > 1 ? body / 2 : 1;
-
         Key k = term_read_key();
-        switch (k.type) {
-        case KEY_EOF: quit = true; break;
-        case KEY_RESIZE: clear = true; break;
-        case KEY_DOWN:
-        case KEY_ENTER: v.top = scroll_down(v.top, 1, max_top); break;
-        case KEY_UP: v.top = scroll_up(v.top, 1); break;
-        case KEY_PGDN: v.top = scroll_down(v.top, page, max_top); break;
-        case KEY_PGUP: v.top = scroll_up(v.top, page); break;
-        case KEY_HOME: v.top = 0; break;
-        case KEY_END: v.top = max_top; break;
-        case KEY_CTRL:
-            if (k.ch == 'd') v.top = scroll_down(v.top, half, max_top);
-            else if (k.ch == 'u') v.top = scroll_up(v.top, half);
-            break;
-        case KEY_CHAR:
-            switch (k.ch) {
-            case 'q': quit = true; break;
-            case 'j': v.top = scroll_down(v.top, 1, max_top); break;
-            case 'k': v.top = scroll_up(v.top, 1); break;
-            case ' ': v.top = scroll_down(v.top, page, max_top); break;
-            case 'b': v.top = scroll_up(v.top, page); break;
-            case 'g': v.top = 0; break;
-            case 'G': v.top = max_top; break;
-            default: break;
-            }
-            break;
-        default: break;
+        if (k.type == KEY_RESIZE) clear = true;
+        if (nav_key(&nav, k, &m, v.rows, v.cols)) {
+            model_free(&m);
+            model_build(&m, patch, vec_at(&patch->files, nav.file));
         }
     }
     term_restore();

@@ -23,6 +23,12 @@ size_t render_body_rows(int rows);
 /* Largest useful value of RenderView.top. */
 size_t render_max_top(const Model *m, int rows);
 
+/* Columns taken by the line-number gutter. */
+size_t render_gutter_width(const Model *m);
+
+/* Largest useful value of RenderView.left for a screen `cols` wide. */
+size_t render_max_left(const Model *m, int cols);
+
 /* Appends one complete frame (every screen row is repainted, so no clear is
  * needed between frames). All text from the patch goes through text_window,
  * so the output contains no escape sequences other than our own. */
