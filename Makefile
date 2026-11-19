@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 CC      ?= cc
 WARN    := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Werror
 BASE    := -std=c11 -D_POSIX_C_SOURCE=200809L -Iinclude $(WARN)
@@ -13,6 +14,10 @@ TEST_BIN := $(patsubst tests/%.c,build/tests/%,$(TESTS))
 
 .PHONY: ide
 ide: patchreader patchreader-asan $(TEST_BIN)
+
+.PHONY: pty
+pty: patchreader-asan
+	python3 tests/pty_ui.py ./patchreader-asan
 
 all: patchreader
 

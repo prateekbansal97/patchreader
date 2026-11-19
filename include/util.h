@@ -7,6 +7,10 @@
 
 #define PR_MAX_INPUT ((size_t)1 << 30)
 
+/* Called once by die() before it prints (the terminal layer uses it to leave
+ * the alternate screen so the message stays visible). */
+extern void (*pr_die_hook)(void);
+
 /* Fatal error: prints "patchreader: <msg>" to stderr and exits with 1. */
 _Noreturn void die(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 

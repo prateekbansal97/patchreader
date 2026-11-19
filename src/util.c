@@ -9,8 +9,15 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+void (*pr_die_hook)(void) = NULL;
+
 void die(const char *fmt, ...) {
     va_list ap;
+    if (pr_die_hook) {
+        void (*hook)(void) = pr_die_hook;
+        pr_die_hook = NULL;
+        hook();
+    }
     fputs("patchreader: ", stderr);
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
