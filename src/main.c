@@ -21,6 +21,7 @@ static void usage(FILE *out) {
           "Read-only terminal viewer for .patch / .diff files.\n"
           "\n"
           "options:\n"
+          "  --no-color     draw without colors (also set by NO_COLOR)\n"
           "  --list         print one summary line per file and exit\n"
           "  --dump         print every file's rows as plain text and exit\n"
           "  -h, --help     show this help\n"
@@ -58,7 +59,7 @@ static bool want_truecolor(void) {
     return c && (strstr(c, "truecolor") || strstr(c, "24bit"));
 }
 
-static int run_ui(const Patch *patch) {
+static int run_ui(const Patch *patch, bool mono) {
     Model m;
     model_build(&m, patch, vec_at(&patch->files, 0));
     if (!term_init()) {
@@ -73,6 +74,8 @@ static int run_ui(const Patch *patch) {
     memset(&v, 0, sizeof v);
     v.file_count = patch->files.len;
     v.truecolor = want_truecolor();
+    v.mono = mono;
+    v.patch = patch;
 
     Buf frame;
     buf_init(&frame);
@@ -84,6 +87,16 @@ static int run_ui(const Patch *patch) {
         v.file_idx = nav.file;
         v.top = nav.top;
         v.left = nav.left;
+        v.picker = nav.mode == NAV_PICK;
+        v.pick = nav.pick;
+        v.pick_top = nav.pick_top;
+        v.help = nav.mode == NAV_HELP;
+        v.typing = nav.mode == NAV_SEARCH;
+        v.input = nav.input;
+        v.input_len = nav.input_len;
+        v.query = nav.query;
+        v.query_len = nav.query_len;
+        v.status = nav.status;
 
         buf_clear(&frame);
         if (clear) {
@@ -109,11 +122,17 @@ static int run_ui(const Patch *patch) {
 int main(int argc, char **argv) {
     bool list = false;
     bool dump = false;
+    const char *no_color_env = getenv("NO_COLOR");
+    bool mono = no_color_env != NULL && no_color_env[0] != '\0';
     int i = 1;
     for (; i < argc; i++) {
         const char *a = argv[i];
         if (strcmp(a, "--list") == 0) {
             list = true;
+            continue;
+        }
+        if (strcmp(a, "--no-color") == 0) {
+            mono = true;
             continue;
         }
         if (strcmp(a, "--dump") == 0) {
@@ -172,7 +191,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (!dump && !list && isatty(STDOUT_FILENO)) {
-        int rc = run_ui(&patch);
+        int rc = run_ui(&patch, mono);
         patch_free(&patch);
         buf_free(&buf);
         return rc;

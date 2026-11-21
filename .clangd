@@ -1,0 +1,9 @@
+CompileFlags:
+  # Paths resolve relative to the file's directory (src/, tests/), hence ../include
+  Add: [-std=c11, -D_POSIX_C_SOURCE=200809L, -I../include, -Wall, -Wextra, -Wpedantic, -Wshadow, -Wconversion]
+---
+# Headers default to Objective-C++ on macOS; force C
+If:
+  PathMatch: .*\.h
+CompileFlags:
+  Add: [-xc]

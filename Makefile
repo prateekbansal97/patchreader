@@ -29,6 +29,12 @@ asan: patchreader-asan
 patchreader-asan: src/main.c $(LIB_SRC) $(HDRS)
 	$(CC) $(BASE) -O1 -g $(SAN) -o $@ src/main.c $(LIB_SRC)
 
+.PHONY: debug
+debug: patchreader-debug
+
+patchreader-debug: src/main.c $(LIB_SRC) $(HDRS)
+	$(CC) $(BASE) -O0 -g -fno-omit-frame-pointer -o $@ src/main.c $(LIB_SRC)
+
 test: $(TEST_BIN)
 	@set -e; for t in $(TEST_BIN); do echo "== $$t"; $$t; done
 
@@ -37,4 +43,4 @@ build/tests/%: tests/%.c $(LIB_SRC) $(HDRS)
 	$(CC) $(BASE) -O1 -g $(SAN) -Itests -o $@ $< $(LIB_SRC)
 
 clean:
-	rm -rf build patchreader patchreader-asan *.dSYM
+	rm -rf build patchreader patchreader-asan patchreader-debug *.dSYM

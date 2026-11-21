@@ -15,6 +15,19 @@ typedef struct {
     size_t left;       /* first visible content column */
     int rows, cols;    /* screen size in character cells */
     bool truecolor;    /* 24-bit colors, otherwise the 256-color palette */
+    bool mono;         /* no colors at all: signs, bold and reverse video only */
+
+    const Patch *patch; /* needed for the file list */
+    bool picker;        /* show the file list instead of the diff */
+    size_t pick;        /* selected entry */
+    size_t pick_top;    /* first visible entry */
+    bool help;          /* show the help page instead of the diff */
+    const char *query;  /* active search, highlighted in the rows (may be NULL) */
+    size_t query_len;
+    bool typing;        /* the bottom bar shows the query being typed */
+    const char *input;
+    size_t input_len;
+    const char *status; /* message for the bottom bar (may be NULL or "") */
 } RenderView;
 
 /* Rows available for diff content (the screen minus header and bottom bar). */

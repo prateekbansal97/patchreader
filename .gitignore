@@ -1,6 +1,7 @@
 build/
 patchreader
 patchreader-asan
+patchreader-debug
 *.dSYM/
 *.patch
 .DS_Store
