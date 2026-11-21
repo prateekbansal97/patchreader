@@ -137,6 +137,40 @@ s.pump(0.3)
 check("} with a single hunk stays", b"line 100" not in s.out)
 s.send(b"{")
 
+# file list
+s.mark(); s.send(b"f")
+check("f opens the file list", s.wait_for(b"Files (3)") and b"big.txt" in s.out and b"src/a.c" in s.out and b"src/b.c" in s.out and b"j/k move" in s.out, repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[B")
+s.pump(0.2)
+s.mark(); s.send(b"\r")
+check("Enter in the list opens the file", s.wait_for(b"2/3 files") and b"src/a.c" in s.out and b"Files (3)" not in s.out, repr(s.out[-100:]))
+s.mark(); s.send(b"f"); time.sleep(0.1); s.send(b"\x1b")
+check("Esc closes the list", s.wait_for(b"2/3 files") and b"Files (3)" not in s.out.split(b"2/3 files")[-1], repr(s.out[-100:]))
+s.mark(); s.send(b"[")
+s.wait_for(b"1/3 files")
+
+# search
+s.mark(); s.send(b"/line 50")
+check("typing a search shows the prompt", s.wait_for(b"/line 50_"), repr(s.out[-100:]))
+s.mark(); s.send(b"\r")
+check("search finds the match and scrolls to it", s.wait_for(b"/line 50  1/1") and b"line 50" in s.out and b"@@ -0" not in s.out, repr(s.out[-100:]))
+check("match is highlighted", b"48;2;214;178;62" in s.out)
+s.mark(); s.send(b"n")
+check("n wraps around", s.wait_for(b"(wrapped)"), repr(s.out[-100:]))
+s.mark(); s.send(b"/nothing-like-this\r")
+check("not found message", s.wait_for(b"Not found: nothing-like-this"), repr(s.out[-100:]))
+s.mark(); s.send(b"/abc"); time.sleep(0.1); s.send(b"\x1b")
+s.pump(0.3)
+check("Esc cancels the prompt", b"/abc_" in s.out and b"q quit" in s.out.split(b"/abc_")[-1], repr(s.out[-100:]))
+s.send(b"g")
+
+# help
+s.mark(); s.send(b"?")
+check("? opens the help", s.wait_for(b"scroll one line") and b"any key closes the help" in s.out, repr(s.out[-100:]))
+s.mark(); s.send(b"x")
+check("any key closes the help", s.wait_for(b"1/3 files") and b"scroll one line" not in s.out, repr(s.out[-100:]))
+s.send(b"g")
+
 # keys with no action must not break anything
 for send in (b"x", b"\x1b[1;5C", b"\t", b"\x1b[Z", b"\x7f", b"\x1b[3~", "\u00e9".encode()):
     s.send(send)
@@ -174,6 +208,25 @@ s.wait_for(b"READ-ONLY")
 check("256-color fallback", b"48;5;22" in s.out and b"48;2;" not in s.out)
 s.send(b"q"); s.status()
 os.environ["COLORTERM"] = "truecolor"
+
+# no colors: NO_COLOR and --no-color
+def no_color_ok(out):
+    return b"48;" not in out and b"38;" not in out and b"\x1b[0;1;7m" in out
+
+os.environ["NO_COLOR"] = "1"
+s = Session([BIN, PATCH])
+check("NO_COLOR draws without colors", s.wait_for(b"READ-ONLY") and no_color_ok(s.out), repr(s.out[:200]))
+check("NO_COLOR marks added rows with a sign", b"+" in s.out and b"@@ -0,0 +1,100 @@" in s.out)
+s.send(b"q"); s.status()
+del os.environ["NO_COLOR"]
+s = Session([BIN, "--no-color", PATCH])
+check("--no-color draws without colors", s.wait_for(b"READ-ONLY") and no_color_ok(s.out), repr(s.out[:200]))
+s.send(b"q"); s.status()
+os.environ["NO_COLOR"] = ""
+s = Session([BIN, PATCH])
+check("empty NO_COLOR keeps the colors", s.wait_for(b"READ-ONLY") and b"48;2;36;68;46" in s.out)
+s.send(b"q"); s.status()
+del os.environ["NO_COLOR"]
 
 # ---- 2. fatal signals restore the terminal ----
 for sig, label in ((signal.SIGTERM, "SIGTERM"), (signal.SIGHUP, "SIGHUP"), (signal.SIGINT, "SIGINT")):

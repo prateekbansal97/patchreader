@@ -170,7 +170,7 @@ static void draw_bar(Buf *o, const Theme *t, const RenderView *v, size_t cols) {
         buf_putc(&left, ' ');
         buf_puts(&left, v->status);
     } else {
-        buf_puts(&left, " q quit  j/k scroll  [/] file  {/} hunk  f files  / find  ? help");
+        buf_puts(&left, " q quit  j/k scroll  [/] file  f files  / find  ? help");
     }
 
     buf_puts(o, t->bar);
