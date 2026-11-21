@@ -19,6 +19,8 @@ typedef struct {
     const char *text;
     size_t len;
     bool no_eol;
+    bool has_pair;  /* a removed row followed by an added row (or the reverse) */
+    size_t pair;    /* index of the partner row when has_pair */
 } Row;
 
 typedef struct {

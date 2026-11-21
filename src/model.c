@@ -64,6 +64,32 @@ static void empty_file_note(Model *m, const FileDiff *f) {
     }
 }
 
+/* Pairs the removed and added rows of each change block one to one, in
+ * order: the first removed row with the first added row, and so on. */
+static void pair_rows(Model *m, size_t first, size_t end) {
+    size_t i = first;
+    while (i < end) {
+        if (((const Row *)vec_at(&m->rows, i))->kind != ROW_DEL) {
+            i++;
+            continue;
+        }
+        size_t d0 = i;
+        while (i < end && ((const Row *)vec_at(&m->rows, i))->kind == ROW_DEL) i++;
+        size_t d1 = i;
+        size_t a0 = i;
+        while (i < end && ((const Row *)vec_at(&m->rows, i))->kind == ROW_ADD) i++;
+        size_t a1 = i;
+        size_t n = d1 - d0 < a1 - a0 ? d1 - d0 : a1 - a0;
+        for (size_t k = 0; k < n; k++) {
+            Row *d = vec_at(&m->rows, d0 + k);
+            Row *a = vec_at(&m->rows, a0 + k);
+            d->has_pair = a->has_pair = true;
+            d->pair = a0 + k;
+            a->pair = d0 + k;
+        }
+    }
+}
+
 void model_build(Model *m, const Patch *p, const FileDiff *f) {
     memset(m, 0, sizeof *m);
     m->file = f;
@@ -74,6 +100,7 @@ void model_build(Model *m, const Patch *p, const FileDiff *f) {
     for (size_t i = 0; i < f->hunks.len; i++) {
         const Hunk *h = vec_at(&f->hunks, i);
         hunk_row(m, p, h);
+        size_t first_line_row = m->rows.len;
 
         size_t old_no = h->old_start, new_no = h->new_start;
         for (size_t j = 0; j < h->lines.len; j++) {
@@ -102,6 +129,7 @@ void model_build(Model *m, const Patch *p, const FileDiff *f) {
             size_t w = text_width(r->text, r->len);
             if (w > m->max_cols) m->max_cols = w;
         }
+        pair_rows(m, first_line_row, m->rows.len);
     }
     if (m->rows.len == 0) empty_file_note(m, f);
 
