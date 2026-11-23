@@ -105,6 +105,12 @@ bool term_init(void) {
     install(SIGTERM, on_fatal, SA_RESETHAND | SA_NODEFER);
     install(SIGHUP, on_fatal, SA_RESETHAND | SA_NODEFER);
     install(SIGQUIT, on_fatal, SA_RESETHAND | SA_NODEFER);
+    /* a crash must not leave the terminal in raw mode on the alternate screen */
+    install(SIGABRT, on_fatal, SA_RESETHAND | SA_NODEFER);
+    install(SIGSEGV, on_fatal, SA_RESETHAND | SA_NODEFER);
+    install(SIGBUS, on_fatal, SA_RESETHAND | SA_NODEFER);
+    install(SIGFPE, on_fatal, SA_RESETHAND | SA_NODEFER);
+    install(SIGILL, on_fatal, SA_RESETHAND | SA_NODEFER);
     install(SIGTSTP, on_tstp, SA_RESETHAND | SA_NODEFER);
     install(SIGCONT, on_cont, 0);
     install(SIGWINCH, on_winch, 0);

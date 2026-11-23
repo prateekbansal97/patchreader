@@ -8,8 +8,9 @@
 
 /* Puts the controlling terminal (/dev/tty) into raw mode on the alternate
  * screen with the cursor hidden. Returns false if there is no terminal.
- * The terminal is restored automatically on exit(), die(), SIGINT, SIGTERM,
- * SIGHUP, SIGQUIT and Ctrl-Z (and re-entered on fg). */
+ * The terminal is restored automatically on exit(), die(), Ctrl-Z (and
+ * re-entered on fg) and on every fatal signal (SIGINT, SIGTERM, SIGHUP,
+ * SIGQUIT, SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL). */
 bool term_init(void);
 
 /* Leaves the alternate screen and restores the saved terminal settings.

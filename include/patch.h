@@ -9,6 +9,10 @@
 /* Largest line number / line count accepted in a hunk header. */
 #define PR_MAX_LINENO ((size_t)0x7fffffff)
 
+/* Longest input accepted, in lines: every line costs about 100 bytes of
+ * parser and model memory, however short it is. */
+#define PR_MAX_LINES ((size_t)10000000)
+
 typedef enum { LINE_CONTEXT, LINE_ADD, LINE_DEL } LineKind;
 
 /* One hunk line. The text is a view into the source buffer given to

@@ -6,3 +6,4 @@ patchreader-debug
 *.patch
 .DS_Store
 .idea/
+*.diff

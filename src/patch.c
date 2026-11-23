@@ -398,6 +398,14 @@ int patch_parse(Patch *p, const char *src, size_t len, ParseError *err) {
         err->msg[0] = '\0';
     }
 
+    size_t newlines = 0;
+    for (const char *q = src, *end = src + len; (q = memchr(q, '\n', (size_t)(end - q))) != NULL; q++)
+        newlines++;
+    if (newlines > PR_MAX_LINES) {
+        set_err(err, 0, "too many lines (the limit is %zu)", PR_MAX_LINES);
+        return -1;
+    }
+
     Cur c;
     cur_init(&c, src, len);
     FileDiff *cur = NULL;

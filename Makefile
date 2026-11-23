@@ -44,3 +44,26 @@ build/tests/%: tests/%.c $(LIB_SRC) $(HDRS)
 
 clean:
 	rm -rf build patchreader patchreader-asan patchreader-debug *.dSYM
+
+FUZZ_SECONDS ?= 30
+
+.PHONY: fuzz bench audit check
+
+fuzz: build/fuzz_pipeline
+	./build/fuzz_pipeline $(FUZZ_SECONDS)
+
+build/fuzz_pipeline: tests/fuzz_pipeline.c $(LIB_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(BASE) -O1 -g $(SAN) -Itests -o $@ $< $(LIB_SRC)
+
+bench: build/bench
+	./build/bench
+
+build/bench: tests/bench.c $(LIB_SRC) $(HDRS)
+	@mkdir -p build
+	$(CC) $(BASE) -O2 -Itests -o $@ $< $(LIB_SRC)
+
+audit: patchreader
+	sh tests/audit.sh
+
+check: test pty audit bench

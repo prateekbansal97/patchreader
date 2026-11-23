@@ -239,6 +239,18 @@ for sig, label in ((signal.SIGTERM, "SIGTERM"), (signal.SIGHUP, "SIGHUP"), (sign
     check(label + " kills the process", st is not None and os.WIFSIGNALED(st) and os.WTERMSIG(st) == sig, str(st))
     check(label + " restores the screen first", LEAVE in s.out, repr(s.out[-60:]))
 
+# a crash must not leave the terminal in raw mode on the alternate screen
+for sig, label in ((signal.SIGABRT, "SIGABRT"), (signal.SIGSEGV, "SIGSEGV"), (signal.SIGBUS, "SIGBUS"),
+                   (signal.SIGFPE, "SIGFPE"), (signal.SIGILL, "SIGILL")):
+    s = Session([BIN, PATCH])
+    s.wait_for(b"READ-ONLY")
+    s.mark()
+    os.kill(s.pid, sig)
+    st = s.status()
+    s.pump(0.2)
+    check(label + " still kills the process", st is not None and os.WIFSIGNALED(st) and os.WTERMSIG(st) == sig, str(st))
+    check(label + " restores the screen first", LEAVE in s.out, repr(s.out[-60:]))
+
 # Ctrl-C typed on the keyboard
 s = Session([BIN, PATCH])
 s.wait_for(b"READ-ONLY")
