@@ -13,10 +13,13 @@ macOS (Homebrew):
 brew install prateekbansal97/patchreader/patchreader
 ```
 
-Debian/Ubuntu (24.04 or newer): download the `.deb` from the [latest release](https://github.com/prateekbansal97/patchreader/releases/latest), then:
+Ubuntu (amd64, built on 24.04): download the `.deb` from the [latest release](https://github.com/prateekbansal97/patchreader/releases/latest), then:
+
 ```
 sudo apt install ./patchreader_1.0.0_amd64.deb
 ```
+
+## Usage
 
 ```
 git diff | patchreader -
@@ -28,9 +31,10 @@ patchreader some.patch
 ```
 make              # ./patchreader
 make asan         # ./patchreader-asan, with AddressSanitizer and UBSan
+make install      # to /usr/local, use with PREFIX= for custom path
 ```
 
-Needs a C11 compiler and a POSIX system. Developed and tested on macOS.
+Needs a C11 compiler and a POSIX system. Tested on macOS (clang) and Linux (gcc).
 
 ## Use
 
@@ -67,7 +71,7 @@ rows and changed words are shown in reverse video.
 | `?` | help |
 | `q` | quit |
 
-Ctrl-C and Ctrl-Z work as usual. 
+Ctrl-C and Ctrl-Z work as usual.
 
 ## Supported input
 
