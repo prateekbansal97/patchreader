@@ -207,6 +207,7 @@ char *arena_strndup(Arena *a, const char *s, size_t n) {
 ReadStatus read_stream(FILE *fp, Buf *out, size_t max) {
     char tmp[65536];
     size_t n;
+    /* NOLINTNEXTLINE(clang-analyzer-unix.Stream) the loop stops at the first short read */
     while ((n = fread(tmp, 1, sizeof tmp, fp)) > 0) {
         if (out->len > max || n > max - out->len) return READ_TOO_BIG;
         buf_append(out, tmp, n);

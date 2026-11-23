@@ -175,7 +175,6 @@ static void parse_git_paths(Patch *p, FileDiff *f, Sl rest) {
         if (used > 0 && used < rest.n && rest.p[used] == ' ') {
             a = (Sl){rest.p, used, rest.off};
             b = sl_skip(rest, used + 1);
-            have = true;
         }
     } else {
         size_t first_space = rest.n;

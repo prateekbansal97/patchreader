@@ -277,7 +277,7 @@ static void draw_diff_row(Buf *o, const Theme *t, const RenderView *v, const Row
     size_t pos = 0;
     int k;
     /* without colors a sign marks added and removed rows */
-    g[pos++] = v->mono ? (r->kind == ROW_ADD ? '+' : r->kind == ROW_DEL ? '-' : ' ') : ' ';
+    g[pos++] = (char)(v->mono ? (r->kind == ROW_ADD ? '+' : r->kind == ROW_DEL ? '-' : ' ') : ' ');
     if (r->old_no) k = snprintf(g + pos, sizeof g - pos, "%*zu", (int)m->old_w, r->old_no);
     else k = snprintf(g + pos, sizeof g - pos, "%*s", (int)m->old_w, "");
     if (k > 0) pos += (size_t)k;

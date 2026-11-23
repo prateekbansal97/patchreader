@@ -13,7 +13,7 @@
 #include "text.h"
 #include "util.h"
 
-#define PR_VERSION "0.1.0"
+#define PR_VERSION "1.0.0"
 
 static void usage(FILE *out) {
     fputs("usage: patchreader [options] <patch-file | ->\n"
@@ -43,7 +43,7 @@ static void dump_file(const Patch *patch, const FileDiff *f) {
             printf("%s\n", line.data);
             continue;
         }
-        char sign = r->kind == ROW_ADD ? '+' : r->kind == ROW_DEL ? '-' : ' ';
+        char sign = (char)(r->kind == ROW_ADD ? '+' : r->kind == ROW_DEL ? '-' : ' ');
         if (r->old_no) printf("%*zu ", (int)m.old_w, r->old_no);
         else printf("%*s ", (int)m.old_w, "");
         if (r->new_no) printf("%*zu ", (int)m.new_w, r->new_no);
