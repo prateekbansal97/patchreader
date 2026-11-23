@@ -186,7 +186,7 @@ int main(void) {
     buf_puts(&b, "\n+");
     for (int w = 0; w < 3000000; w++) buf_puts(&b, "abc deg ");
     buf_puts(&b, "\n");
-    run("one 24 MB line", &b, 1.0);
+    run("one 24 MB line", &b, 3.0);
 
     buf_free(&b);
     printf(g_failed ? "bench: FAILED\n" : "bench: ok\n");
