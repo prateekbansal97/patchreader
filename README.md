@@ -4,6 +4,20 @@ A memory-safe read-only terminal viewer for `.patch` / `.diff` files.
 
 Written in C11.
 
+
+## Install
+
+macOS (Homebrew):
+
+```
+brew install prateekbansal97/patchreader/patchreader
+```
+
+Debian/Ubuntu (24.04 or newer): download the `.deb` from the [latest release](https://github.com/prateekbansal97/patchreader/releases/latest), then:
+```
+sudo apt install ./patchreader_1.0.0_amd64.deb
+```
+
 ```
 git diff | patchreader -
 patchreader some.patch
