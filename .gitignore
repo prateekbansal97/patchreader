@@ -7,3 +7,4 @@ patchreader-debug
 .DS_Store
 .idea/
 *.diff
+*.deb

@@ -67,3 +67,14 @@ audit: patchreader
 	sh tests/audit.sh
 
 check: test pty audit bench
+
+PREFIX ?= /usr/local
+DESTDIR ?=
+
+.PHONY: install
+install: patchreader
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 patchreader $(DESTDIR)$(PREFIX)/bin/patchreader
+	install -d $(DESTDIR)$(PREFIX)/share/doc/patchreader
+	install -m 644 README.md $(DESTDIR)$(PREFIX)/share/doc/patchreader/README.md
+	install -m 644 LICENSE $(DESTDIR)$(PREFIX)/share/doc/patchreader/copyright
