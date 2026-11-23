@@ -299,7 +299,7 @@ static void test_single_word_edit(void) {
         size_t edit = rnd() % words;
         size_t sa = 0, ea = 0, sb = 0, eb = 0;
         for (size_t i = 0; i < words; i++) {
-            char w[32];
+            char w[48];
             size_t letters = 3 + rnd() % 6;
             char word[16];
             for (size_t j = 0; j < letters; j++) word[j] = (char)('a' + rnd() % 26);

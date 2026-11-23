@@ -7,10 +7,11 @@
 #include "patch.h"
 #include "util.h"
 
-#define REQUIRE(cond)       \
-    do {                    \
-        CHECK(cond);        \
-        if (!(cond)) return; \
+#define REQUIRE(cond)     \
+    do {                  \
+        int ok_ = (cond); \
+        CHECK(ok_);       \
+        if (!ok_) return; \
     } while (0)
 
 /* Fixture: the input lives in an exact-size heap copy with no trailing NUL,

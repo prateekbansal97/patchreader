@@ -61,12 +61,12 @@ static void on_winch(int sig) {
     g_winch = 1;
 }
 
-static void install(int sig, void (*fn)(int), int flags) {
+static void install(int sig, void (*fn)(int), unsigned flags) {
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = fn;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = flags; /* never SA_RESTART: blocked reads must wake up */
+    sa.sa_flags = (int)flags; /* never SA_RESTART: blocked reads must wake up */
     sigaction(sig, &sa, NULL);
 }
 

@@ -30,7 +30,7 @@ typedef struct {
     char input[NAV_TEXT_MAX];      /* query being typed */
     size_t input_len;
     size_t hit;                    /* row of the current match, SIZE_MAX if none */
-    char status[NAV_TEXT_MAX + 32]; /* message for the bottom bar, "" if none */
+    char status[NAV_TEXT_MAX + 64]; /* message for the bottom bar, "" if none */
 } Nav;
 
 void nav_init(Nav *n, size_t file_count);

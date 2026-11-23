@@ -9,10 +9,11 @@
 #include "patch.h"
 #include "util.h"
 
-#define REQUIRE(cond)        \
-    do {                     \
-        CHECK(cond);         \
-        if (!(cond)) return; \
+#define REQUIRE(cond)     \
+    do {                  \
+        int ok_ = (cond); \
+        CHECK(ok_);       \
+        if (!ok_) return; \
     } while (0)
 
 /* Parses s (exact-size heap copy, so ASan flags overreads) and builds the
