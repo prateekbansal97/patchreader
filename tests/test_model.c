@@ -92,16 +92,18 @@ static void test_numbering(void) {
                     "+n1\n"
                     "+n2\n",
                     0));
-    REQUIRE(x.m.rows.len == 9);
-    ROW(x, 0, ROW_HUNK, 0, 0, "@@ -8,3 +98,4 @@ fn x");
-    ROW(x, 1, ROW_CONTEXT, 8, 98, "ctx8");
-    ROW(x, 2, ROW_DEL, 9, 0, "del9");
-    ROW(x, 3, ROW_ADD, 0, 99, "add99");
-    ROW(x, 4, ROW_ADD, 0, 100, "add100");
-    ROW(x, 5, ROW_CONTEXT, 10, 101, "ctx10");
-    ROW(x, 6, ROW_HUNK, 0, 0, "@@ -50,0 +150,2 @@ other");
-    ROW(x, 7, ROW_ADD, 0, 150, "n1");
-    ROW(x, 8, ROW_ADD, 0, 151, "n2");
+    REQUIRE(x.m.rows.len == 11);
+    ROW(x, 0, ROW_WAVE, 0, 0, "");
+    ROW(x, 1, ROW_HUNK, 0, 0, "@@ -8,3 +98,4 @@ fn x");
+    ROW(x, 2, ROW_CONTEXT, 8, 98, "ctx8");
+    ROW(x, 3, ROW_DEL, 9, 0, "del9");
+    ROW(x, 4, ROW_ADD, 0, 99, "add99");
+    ROW(x, 5, ROW_ADD, 0, 100, "add100");
+    ROW(x, 6, ROW_CONTEXT, 10, 101, "ctx10");
+    ROW(x, 7, ROW_WAVE, 0, 0, "");
+    ROW(x, 8, ROW_HUNK, 0, 0, "@@ -50,0 +150,2 @@ other");
+    ROW(x, 9, ROW_ADD, 0, 150, "n1");
+    ROW(x, 10, ROW_ADD, 0, 151, "n2");
     CHECK(x.m.old_w == 2); /* widest old number is 10 */
     CHECK(x.m.new_w == 3); /* widest new number is 151 */
     CHECK(x.m.max_cols == 6);
@@ -119,7 +121,7 @@ static void test_hunk_header_text(void) {
                     "+y\n",
                     0));
     /* omitted counts are shown as 1; no heading means no trailing space */
-    ROW(x, 0, ROW_HUNK, 0, 0, "@@ -3,1 +3,1 @@");
+    ROW(x, 1, ROW_HUNK, 0, 0, "@@ -3,1 +3,1 @@");
     mx_close(&x);
 }
 
@@ -133,9 +135,9 @@ static void test_added_and_deleted(void) {
                     "@@ -0,0 +1,12 @@\n"
                     "+a\n+b\n+c\n+d\n+e\n+f\n+g\n+h\n+i\n+j\n+k\n+l\n",
                     0));
-    REQUIRE(x.m.rows.len == 13);
-    ROW(x, 1, ROW_ADD, 0, 1, "a");
-    ROW(x, 12, ROW_ADD, 0, 12, "l");
+    REQUIRE(x.m.rows.len == 14);
+    ROW(x, 2, ROW_ADD, 0, 1, "a");
+    ROW(x, 13, ROW_ADD, 0, 12, "l");
     CHECK(x.m.old_w == 1 && x.m.new_w == 2);
     mx_close(&x);
 
@@ -147,9 +149,9 @@ static void test_added_and_deleted(void) {
                     "@@ -1,2 +0,0 @@\n"
                     "-one\n-two\n",
                     0));
-    REQUIRE(x.m.rows.len == 3);
-    ROW(x, 1, ROW_DEL, 1, 0, "one");
-    ROW(x, 2, ROW_DEL, 2, 0, "two");
+    REQUIRE(x.m.rows.len == 4);
+    ROW(x, 2, ROW_DEL, 1, 0, "one");
+    ROW(x, 3, ROW_DEL, 2, 0, "two");
     CHECK(x.m.old_w == 1 && x.m.new_w == 1);
     mx_close(&x);
 }
@@ -166,10 +168,10 @@ static void test_no_eol_and_empty_lines(void) {
                     "\\ No newline at end of file\n"
                     "+new\n",
                     0));
-    REQUIRE(x.m.rows.len == 5);
-    ROW(x, 2, ROW_CONTEXT, 2, 2, ""); /* empty context line */
-    const Row *del = vec_at(&x.m.rows, 3);
-    const Row *add = vec_at(&x.m.rows, 4);
+    REQUIRE(x.m.rows.len == 6);
+    ROW(x, 3, ROW_CONTEXT, 2, 2, ""); /* empty context line */
+    const Row *del = vec_at(&x.m.rows, 4);
+    const Row *add = vec_at(&x.m.rows, 5);
     CHECK(del->kind == ROW_DEL && del->no_eol);
     CHECK(add->kind == ROW_ADD && !add->no_eol);
     mx_close(&x);
@@ -195,6 +197,57 @@ static void test_max_cols(void) {
                     "+\xE4\xB8\xAD\xE6\x96\x87\xE4\xB8\xAD\n",
                     0));
     CHECK(x.m.max_cols == 6); /* three wide characters */
+    mx_close(&x);
+}
+
+/* ---- the wavy separator above every hunk ---- */
+
+static void test_wave_rows(void) {
+    Mx x;
+    REQUIRE(mx_open(&x,
+                    "--- a\n"
+                    "+++ b\n"
+                    "@@ -1,2 +1,2 @@\n"
+                    " a\n"
+                    "-b\n"
+                    "+B\n"
+                    "@@ -40,2 +40,2 @@\n"
+                    " c\n"
+                    "-d\n"
+                    "+D\n"
+                    "@@ -90 +90 @@\n"
+                    "-e\n"
+                    "+E\n",
+                    0));
+    REQUIRE(x.m.rows.len == 14);
+    size_t waves = 0, hunks = 0;
+    for (size_t i = 0; i < x.m.rows.len; i++) {
+        const Row *r = vec_at(&x.m.rows, i);
+        if (r->kind == ROW_WAVE) {
+            waves++;
+            CHECK(r->old_no == 0 && r->new_no == 0 && r->len == 0 && !r->has_pair);
+            CHECK(i + 1 < x.m.rows.len && ((const Row *)vec_at(&x.m.rows, i + 1))->kind == ROW_HUNK);
+        }
+        if (r->kind == ROW_HUNK) hunks++;
+    }
+    CHECK(waves == 3 && hunks == 3);
+    /* the first hunk starts at line 1 and still has a wave above it */
+    ROW(x, 0, ROW_WAVE, 0, 0, "");
+    ROW(x, 1, ROW_HUNK, 0, 0, "@@ -1,2 +1,2 @@");
+    ROW(x, 5, ROW_WAVE, 0, 0, "");
+    ROW(x, 6, ROW_HUNK, 0, 0, "@@ -40,2 +40,2 @@");
+    ROW(x, 10, ROW_WAVE, 0, 0, "");
+    ROW(x, 11, ROW_HUNK, 0, 0, "@@ -90,1 +90,1 @@");
+    /* a wave row does not take part in the line-number gutters or pairing */
+    CHECK(x.m.old_w == 2 && x.m.new_w == 2);
+    const Row *d = vec_at(&x.m.rows, 3);
+    CHECK(d->kind == ROW_DEL && d->has_pair && d->pair == 4);
+    mx_close(&x);
+
+    /* files without hunks show a note and no wave */
+    REQUIRE(mx_open(&x, "diff --git a/img b/img\nBinary files a/img and b/img differ\n", 0));
+    REQUIRE(x.m.rows.len == 1);
+    CHECK(((const Row *)vec_at(&x.m.rows, 0))->kind == ROW_NOTE);
     mx_close(&x);
 }
 
@@ -265,9 +318,9 @@ static void test_multiple_files(void) {
         mx_close(&x0);
         return;
     }
-    CHECK(x0.m.rows.len == 3 && x1.m.rows.len == 4);
+    CHECK(x0.m.rows.len == 4 && x1.m.rows.len == 5);
     CHECK(x0.m.old_w == 1 && x1.m.old_w == 3);
-    ROW(x1, 1, ROW_CONTEXT, 100, 100, "k");
+    ROW(x1, 2, ROW_CONTEXT, 100, 100, "k");
     mx_close(&x1);
     mx_close(&x0);
 }
@@ -280,7 +333,7 @@ static void test_rows_point_into_source(void) {
     int inside = 1;
     for (size_t i = 0; i < x.m.rows.len; i++) {
         const Row *r = vec_at(&x.m.rows, i);
-        if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) continue;
+        if (r->kind == ROW_HUNK || r->kind == ROW_NOTE || r->kind == ROW_WAVE) continue;
         if (r->text < x.buf || r->text > x.buf + x.n ||
             r->len > (size_t)(x.buf + x.n - r->text))
             inside = 0;
@@ -308,8 +361,8 @@ static void test_large(void) {
     for (size_t i = 0; i < 50000; i++) buf_puts(&b, " line\n");
     Mx x;
     REQUIRE(mx_open_n(&x, b.data, b.len, 0));
-    REQUIRE(x.m.rows.len == 50001);
-    const Row *last = vec_at(&x.m.rows, 50000);
+    REQUIRE(x.m.rows.len == 50002);
+    const Row *last = vec_at(&x.m.rows, 50001);
     CHECK(last->old_no == 50000 && last->new_no == 50000);
     CHECK(x.m.old_w == 5 && x.m.new_w == 5);
     mx_close(&x);
@@ -342,7 +395,15 @@ static int model_ok(const Mx *x) {
     for (size_t i = 0; i < m->rows.len; i++) {
         const Row *r = vec_at(&m->rows, i);
         if (num_digits(r->old_no) > m->old_w || num_digits(r->new_no) > m->new_w) return 0;
-        if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) {
+        /* every hunk row has a wave row right above it, and nothing else does */
+        if (r->kind == ROW_WAVE) {
+            if (r->len != 0 || i + 1 >= m->rows.len) return 0;
+            if (((const Row *)vec_at(&m->rows, i + 1))->kind != ROW_HUNK) return 0;
+        }
+        if (r->kind == ROW_HUNK) {
+            if (i == 0 || ((const Row *)vec_at(&m->rows, i - 1))->kind != ROW_WAVE) return 0;
+        }
+        if (r->kind == ROW_HUNK || r->kind == ROW_NOTE || r->kind == ROW_WAVE) {
             if (r->text == NULL || r->text[r->len] != '\0') return 0; /* arena strings are NUL-terminated */
             continue;
         }
@@ -385,6 +446,7 @@ int main(void) {
     test_num_digits();
     test_numbering();
     test_hunk_header_text();
+    test_wave_rows();
     test_added_and_deleted();
     test_no_eol_and_empty_lines();
     test_max_cols();

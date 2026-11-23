@@ -24,7 +24,7 @@ static size_t next_hunk(const Model *m, size_t top) {
     for (size_t i = top; i < m->rows.len; i++) {
         if (i == top) continue;
         const Row *r = vec_at(&m->rows, i);
-        if (r->kind == ROW_HUNK) return i;
+        if (r->kind == ROW_WAVE) return i;
     }
     return SIZE_MAX;
 }
@@ -35,7 +35,7 @@ static size_t prev_hunk(const Model *m, size_t top) {
     while (i > 0) {
         i--;
         const Row *r = vec_at(&m->rows, i);
-        if (r->kind == ROW_HUNK) return i;
+        if (r->kind == ROW_WAVE) return i;
     }
     return SIZE_MAX;
 }

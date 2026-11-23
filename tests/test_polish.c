@@ -165,8 +165,9 @@ static void make_patch(Buf *b) {
              "diff --git a/b.c b/b.c\n--- a/b.c\n+++ b/b.c\n@@ -1 +1 @@\n-x\n+y\n"
              "diff --git a/c.c b/c.c\n--- a/c.c\n+++ b/c.c\n@@ -0,0 +1 @@\n+one\n");
 }
-/* a.c rows: 0 hunk, 1 "alpha one", 2 "Beta two", 3 "beta three", 4 "gamma one",
- *           5 hunk, 6 "one more", 7 "del", 8 "add one" */
+/* a.c rows: 0 wave, 1 hunk, 2 "alpha one", 3 "Beta two", 4 "beta three", 5 "gamma one",
+ *           6 wave, 7 hunk, 8 "one more", 9 "del", 10 "add one"
+ * c.c rows: 0 wave, 1 hunk, 2 "one" */
 
 typedef struct {
     Buf src;
@@ -241,21 +242,21 @@ static void test_nav_search(void) {
     press(&x, K(KEY_ENTER, 0), 24, 80);
     CHECK(n->mode == NAV_VIEW);
     CHECK(strcmp(n->query, "one") == 0 && n->query_len == 3);
-    CHECK(n->hit == 1);
+    CHECK(n->hit == 2);
     CHECK(strcmp(n->status, "/one  1/4") == 0);
 
-    press(&x, ch('n'), 24, 80); CHECK(n->hit == 4 && strcmp(n->status, "/one  2/4") == 0);
-    press(&x, ch('n'), 24, 80); CHECK(n->hit == 6 && strcmp(n->status, "/one  3/4") == 0);
-    press(&x, ch('n'), 24, 80); CHECK(n->hit == 8 && strcmp(n->status, "/one  4/4") == 0);
-    press(&x, ch('n'), 24, 80); CHECK(n->hit == 1 && strcmp(n->status, "/one  1/4  (wrapped)") == 0);
-    press(&x, ch('N'), 24, 80); CHECK(n->hit == 8 && strcmp(n->status, "/one  4/4  (wrapped)") == 0);
-    press(&x, ch('N'), 24, 80); CHECK(n->hit == 6 && strcmp(n->status, "/one  3/4") == 0);
+    press(&x, ch('n'), 24, 80); CHECK(n->hit == 5 && strcmp(n->status, "/one  2/4") == 0);
+    press(&x, ch('n'), 24, 80); CHECK(n->hit == 8 && strcmp(n->status, "/one  3/4") == 0);
+    press(&x, ch('n'), 24, 80); CHECK(n->hit == 10 && strcmp(n->status, "/one  4/4") == 0);
+    press(&x, ch('n'), 24, 80); CHECK(n->hit == 2 && strcmp(n->status, "/one  1/4  (wrapped)") == 0);
+    press(&x, ch('N'), 24, 80); CHECK(n->hit == 10 && strcmp(n->status, "/one  4/4  (wrapped)") == 0);
+    press(&x, ch('N'), 24, 80); CHECK(n->hit == 8 && strcmp(n->status, "/one  3/4") == 0);
 
     /* any other key clears the message but keeps the query */
     press(&x, ch('j'), 24, 80);
     CHECK(n->status[0] == '\0' && n->query_len == 3);
     press(&x, ch('n'), 24, 80);
-    CHECK(n->hit == 8);
+    CHECK(n->hit == 10);
 
     /* the search is for the current file only; the query follows you */
     press(&x, ch(']'), 24, 80);
@@ -264,9 +265,9 @@ static void test_nav_search(void) {
     CHECK(strcmp(n->status, "Not found: one") == 0 && n->hit == SIZE_MAX);
     press(&x, ch(']'), 24, 80);
     press(&x, ch('n'), 24, 80); /* c.c has "+one" */
-    CHECK(n->hit == 1 && strcmp(n->status, "/one  1/1") == 0);
+    CHECK(n->hit == 2 && strcmp(n->status, "/one  1/1") == 0);
     press(&x, ch('n'), 24, 80);
-    CHECK(n->hit == 1 && strcmp(n->status, "/one  1/1  (wrapped)") == 0);
+    CHECK(n->hit == 2 && strcmp(n->status, "/one  1/1  (wrapped)") == 0);
     fx_close(&x);
 }
 
@@ -276,15 +277,17 @@ static void test_nav_search_case(void) {
     Nav *n = &x.nav;
 
     search(&x, "Beta", 24);
-    CHECK(n->hit == 2 && strcmp(n->status, "/Beta  1/1") == 0); /* capital: exact case */
+    CHECK(n->hit == 3 && strcmp(n->status, "/Beta  1/1") == 0); /* capital: exact case */
     search(&x, "beta", 24);
-    CHECK(n->hit == 2 && strcmp(n->status, "/beta  1/2") == 0); /* all lower: any case */
+    CHECK(n->hit == 3 && strcmp(n->status, "/beta  1/2") == 0); /* all lower: any case */
     press(&x, ch('n'), 24, 80);
-    CHECK(n->hit == 3 && strcmp(n->status, "/beta  2/2") == 0);
+    CHECK(n->hit == 4 && strcmp(n->status, "/beta  2/2") == 0);
 
-    /* hunk rows are searchable too */
+    /* hunk rows are searchable too; the wave rows above them have no text */
     search(&x, "int main", 24);
-    CHECK(n->hit == 0);
+    CHECK(n->hit == 1);
+    search(&x, "~", 24);
+    CHECK(strcmp(n->status, "Not found: ~") == 0);
     fx_close(&x);
 }
 
@@ -293,24 +296,24 @@ static void test_nav_search_scroll(void) {
     REQUIRE(fx_open(&x));
     Nav *n = &x.nav;
 
-    /* 5 screen rows: 3 body rows, so max_top is 6 and a third is 1 */
+    /* 5 screen rows: 3 body rows, so max_top is 8 and a third is 1 */
     search(&x, "add", 5);
-    CHECK(n->hit == 8);
-    CHECK(n->top == 6);
+    CHECK(n->hit == 10);
+    CHECK(n->top == 8);
 
     n->top = 0;
-    search(&x, "alpha", 5); /* row 1 is already visible: no scroll */
-    CHECK(n->hit == 1 && n->top == 0);
+    search(&x, "alpha", 5); /* row 2 is already visible: no scroll */
+    CHECK(n->hit == 2 && n->top == 0);
 
-    n->top = 5;
-    search(&x, "gamma", 5); /* row 4 is above the view: scrolled into it */
-    CHECK(n->hit == 4);
-    CHECK(n->top == 3);
+    n->top = 8;
+    search(&x, "gamma", 5); /* row 5 is above the view: scrolled into it */
+    CHECK(n->hit == 5);
+    CHECK(n->top == 4);
 
     /* a visible match does not move the view */
-    n->top = 4; /* shows rows 4..6 */
+    n->top = 7; /* shows rows 7..9 */
     search(&x, "one more", 5);
-    CHECK(n->hit == 6 && n->top == 4);
+    CHECK(n->hit == 8 && n->top == 7);
     fx_close(&x);
 }
 
@@ -339,9 +342,9 @@ static void test_nav_search_edge(void) {
     /* Enter on an empty prompt repeats the old query from the last match */
     n->top = 0;
     search(&x, "one", 24);
-    CHECK(n->hit == 1);
+    CHECK(n->hit == 2);
     search(&x, "", 24);
-    CHECK(n->hit == 4 && strcmp(n->query, "one") == 0);
+    CHECK(n->hit == 5 && strcmp(n->query, "one") == 0);
 
     /* Esc cancels and keeps the old query */
     press(&x, ch('/'), 24, 80);
@@ -845,45 +848,46 @@ static void test_render_search(void) {
     Buf t;
     buf_init(&t);
 
-    /* rows: screen row r shows model row r-2 */
+    /* rows: screen row r shows model row r-2; raw[r-1] is its escape-coded text */
     base_view(&x, &v, 14, 60);
     v.query = "one";
     v.query_len = 3;
     draw(&v, &s);
     CHECK(geometry_ok(&s, 14, 60));
-    marked_text(&s.raw[2], MATCH_T, &t);        /* "alpha one" */
+    marked_text(&s.raw[3], MATCH_T, &t);        /* "alpha one" */
     CHECK(strcmp(t.data, "one") == 0);
     buf_clear(&t);
-    marked_text(&s.raw[5], MATCH_T, &t);        /* "gamma one" */
+    marked_text(&s.raw[6], MATCH_T, &t);        /* "gamma one" */
     CHECK(strcmp(t.data, "one") == 0);
     buf_clear(&t);
-    CHECK(!raw_has(&s, 4, MATCH_T));            /* "Beta two": no match */
-    CHECK(has(&s, 3, "alpha one"));             /* text itself is unchanged */
+    CHECK(!raw_has(&s, 5, MATCH_T));            /* "Beta two": no match */
+    CHECK(!raw_has(&s, 2, MATCH_T));            /* the wave row */
+    CHECK(has(&s, 4, "alpha one"));             /* text itself is unchanged */
     scr_free(&s);
 
     /* smart case: a capital makes it exact */
     v.query = "Beta";
     v.query_len = 4;
     draw(&v, &s);
-    marked_text(&s.raw[3], MATCH_T, &t);
+    marked_text(&s.raw[4], MATCH_T, &t);
     CHECK(strcmp(t.data, "Beta") == 0);
-    CHECK(!raw_has(&s, 5, MATCH_T));            /* "beta three" is not "Beta" */
+    CHECK(!raw_has(&s, 6, MATCH_T));            /* "beta three" is not "Beta" */
     buf_clear(&t);
     scr_free(&s);
     v.query = "beta";
     v.query_len = 4;
     draw(&v, &s);
-    CHECK(raw_has(&s, 3, MATCH_T) == 0);        /* gutter/other rows */
-    CHECK(raw_has(&s, 4, MATCH_T) && raw_has(&s, 5, MATCH_T));
+    CHECK(raw_has(&s, 4, MATCH_T) == 0);        /* gutter/other rows */
+    CHECK(raw_has(&s, 5, MATCH_T) && raw_has(&s, 6, MATCH_T));
     scr_free(&s);
 
     /* hunk rows are searchable and highlighted */
     v.query = "main";
     v.query_len = 4;
     draw(&v, &s);
-    marked_text(&s.raw[1], MATCH_T, &t);
+    marked_text(&s.raw[2], MATCH_T, &t);
     CHECK(strcmp(t.data, "main") == 0);
-    CHECK(has(&s, 2, "@@ -1,3 +1,3 @@ int main"));
+    CHECK(has(&s, 3, "@@ -1,3 +1,3 @@ int main"));
     buf_clear(&t);
     scr_free(&s);
 
@@ -891,7 +895,7 @@ static void test_render_search(void) {
     v.query = "three";
     v.query_len = 5;
     draw(&v, &s);
-    marked_text(&s.raw[4], MATCH_T, &t);
+    marked_text(&s.raw[5], MATCH_T, &t);
     CHECK(strcmp(t.data, "three") == 0);
     buf_clear(&t);
     scr_free(&s);
@@ -901,7 +905,7 @@ static void test_render_search(void) {
     v.query_len = 9;
     draw(&v, &s);
     {
-        const char *raw = s.raw[5].data, *last = NULL;
+        const char *raw = s.raw[6].data, *last = NULL;
         for (const char *p = raw; (p = strstr(p, MATCH_T)) != NULL; p++) last = p;
         CHECK(last != NULL);
         int esc = 0;
@@ -948,6 +952,7 @@ static void test_render_bar(void) {
     Scr s;
     RenderView v;
     base_view(&x, &v, 12, 80);
+    v.top = 1; /* 11 rows in 10 body rows: scrolled to the end, so 100% */
 
     draw(&v, &s);
     CHECK(starts(&s, 12, " q quit  j/k scroll"));
@@ -1046,16 +1051,19 @@ static void test_render_mono(void) {
     CHECK(geometry_ok(&s, 12, 60));
     CHECK(no_color_codes(&s, 12));
     /* signs in the first gutter column; the numbers are 2 digits wide */
-    CHECK(starts(&s, 3, "  9  9 keep"));
-    CHECK(starts(&s, 4, "-10    int a = 10;"));
-    CHECK(starts(&s, 5, "+   10 int a = 20;"));
-    CHECK(starts(&s, 6, " 11 11 tail"));
+    CHECK(starts(&s, 2, "~~~~"));              /* wave row, dim and plain text */
+    CHECK(raw_has(&s, 2, "\x1b[0;2m"));
+    CHECK(starts(&s, 3, " @@ -9,3 +9,3 @@"));
+    CHECK(starts(&s, 4, "  9  9 keep"));
+    CHECK(starts(&s, 5, "-10    int a = 10;"));
+    CHECK(starts(&s, 6, "+   10 int a = 20;"));
+    CHECK(starts(&s, 7, " 11 11 tail"));
     Buf t;
     buf_init(&t);
-    marked_text(&s.raw[3], "\x1b[0;7m", &t);   /* changed words: reverse video */
+    marked_text(&s.raw[4], "\x1b[0;7m", &t);   /* changed words: reverse video */
     CHECK(strcmp(t.data, "10") == 0);
     buf_clear(&t);
-    marked_text(&s.raw[4], "\x1b[0;7m", &t);
+    marked_text(&s.raw[5], "\x1b[0;7m", &t);
     CHECK(strcmp(t.data, "20") == 0);
     buf_free(&t);
     CHECK(raw_has(&s, 1, "\x1b[0;1;7m"));      /* bold reverse header */
@@ -1065,7 +1073,7 @@ static void test_render_mono(void) {
     v.query = "int";
     v.query_len = 3;
     draw(&v, &s);
-    CHECK(raw_has(&s, 4, "\x1b[0;1;7m"));
+    CHECK(raw_has(&s, 5, "\x1b[0;1;7m"));
     CHECK(no_color_codes(&s, 12));
     scr_free(&s);
     v.query = NULL;
@@ -1085,7 +1093,7 @@ static void test_render_mono(void) {
     v.help = false;
     v.mono = false;
     draw(&v, &s);
-    CHECK(starts(&s, 4, " 10    int a = 10;"));
+    CHECK(starts(&s, 5, " 10    int a = 10;"));
     scr_free(&s);
     rx_close(&x);
 }

@@ -7,7 +7,7 @@
 #include "patch.h"
 #include "util.h"
 
-typedef enum { ROW_HUNK, ROW_CONTEXT, ROW_ADD, ROW_DEL, ROW_NOTE } RowKind;
+typedef enum { ROW_HUNK, ROW_CONTEXT, ROW_ADD, ROW_DEL, ROW_NOTE, ROW_WAVE } RowKind;
 
 /* One screen row of a file's diff. text points into the patch source (or
  * the model's arena for hunk and note rows) and is raw: pass it through

@@ -37,6 +37,7 @@ static void dump_file(const Patch *patch, const FileDiff *f) {
     buf_init(&line);
     for (size_t k = 0; k < m.rows.len; k++) {
         const Row *r = vec_at(&m.rows, k);
+        if (r->kind == ROW_WAVE) continue;
         buf_clear(&line);
         text_window(&line, r->text, r->len, 0, SIZE_MAX);
         if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) {

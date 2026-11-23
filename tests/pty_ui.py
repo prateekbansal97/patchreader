@@ -13,6 +13,7 @@ _tmp.close()
 PATCH = _tmp.name
 ENTER = b"\x1b[?1049h\x1b[?25l"
 LEAVE = b"\x1b[0m\x1b[?25h\x1b[?1049l"
+WAVE = b"~" * 8
 fails = 0
 
 def check(name, cond, extra=""):
@@ -75,18 +76,20 @@ check("enters alternate screen + hides cursor", s.wait_for(ENTER), repr(s.out[:8
 check("first frame drawn", s.wait_for(b"READ-ONLY"))
 check("header shows file count and path", b"1/3 files" in s.out and b"big.txt" in s.out and b"+100 -0" in s.out)
 check("hunk row drawn", b"@@ -0,0 +1,100 @@" in s.out)
+check("wave row drawn above the hunk row", WAVE in s.out and s.out.index(WAVE) < s.out.index(b"@@ -0,0 +1,100 @@"))
+check("wave spans the whole width", b"~" * 80 in s.out and b"~" * 81 not in s.out)
 check("added rows are green (truecolor)", b"48;2;36;68;46" in s.out)
 check("bottom bar shows hints", b"q quit" in s.out and b"0%" not in s.out.split(b"READ-ONLY")[-1][:3])
-check("gutter line numbers", b"line 1" in s.out and b"line 21" in s.out and b"line 22" not in s.out)
+check("gutter line numbers", b"line 1" in s.out and b"line 20" in s.out and b"line 21" not in s.out)
 check("no content-derived escapes", b"\x1b[31m" not in s.out)
 
-def scrolls_down(send, name, mustnot=b"@@ -0"):
+def scrolls_down(send, name, mustnot=WAVE):
     s.mark(); s.send(send)
-    check("scroll down: " + name, s.wait_for(b"line 22") and mustnot not in s.out, repr(s.out[-100:]))
+    check("scroll down: " + name, s.wait_for(b"line 21") and mustnot not in s.out, repr(s.out[-100:]))
 
 def scrolls_up(send, name):
     s.mark(); s.send(send)
-    check("scroll up: " + name, s.wait_for(b"@@ -0,0 +1,100 @@"), repr(s.out[-100:]))
+    check("scroll up: " + name, s.wait_for(b"@@ -0,0 +1,100 @@") and WAVE in s.out, repr(s.out[-100:]))
 
 for send, name in ((b"j", "j"), (b"\x1b[B", "down arrow"), (b"\x1bOB", "SS3 down"), (b"\r", "enter")):
     scrolls_down(send, name)
@@ -99,10 +102,10 @@ scrolls_up(b"\x1bOA", "SS3 up")
 # page keys: 24 rows -> 22 body rows, a page is 21 rows
 for send, name in ((b"\x1b[6~", "PageDown"), (b" ", "space")):
     s.mark(); s.send(send)
-    check("page down: " + name, s.wait_for(b"line 42") and b"line 43" not in s.out and b"@@ -0" not in s.out, repr(s.out[-100:]))
+    check("page down: " + name, s.wait_for(b"line 41") and b"line 42" not in s.out and b"@@ -0" not in s.out and WAVE not in s.out, repr(s.out[-100:]))
     scrolls_up(b"\x1b[5~" if name == "PageDown" else b"b", "page up")
 s.mark(); s.send(b"\x04")
-check("Ctrl-d scrolls half a page", s.wait_for(b"line 32") and b"line 33" not in s.out)
+check("Ctrl-d scrolls half a page", s.wait_for(b"line 31") and b"line 32" not in s.out)
 scrolls_up(b"\x15", "Ctrl-u")
 
 s.mark(); s.send(b"G")
@@ -179,16 +182,16 @@ check("unknown sequence ignored, next key works", s.wait_for(b"line 100"), repr(
 s.mark(); s.send(b"\x1b"); time.sleep(0.2); s.send(b"g")
 check("lone ESC is harmless", s.wait_for(b"@@ -0,0 +1,100 @@"), repr(s.out[-80:]))
 s.mark(); s.send(b"\x1b"); time.sleep(0.01); s.send(b"[B")
-check("split escape sequence scrolls", s.wait_for(b"line 22") and b"@@ -0" not in s.out, repr(s.out[-80:]))
+check("split escape sequence scrolls", s.wait_for(b"line 21") and WAVE not in s.out, repr(s.out[-80:]))
 s.send(b"g")
 
 # resize: more rows are shown, the header is repainted
 s.mark(); s.resize(30, 100)
-check("resize redraws with the new size", s.wait_for(b"line 27") and b"1/3 files" in s.out, repr(s.out[-80:]))
+check("resize redraws with the new size", s.wait_for(b"line 26") and b"line 27" not in s.out and b"1/3 files" in s.out, repr(s.out[-80:]))
 s.mark(); s.resize(10, 40)
-check("shrinking redraws too", s.wait_for(b"READ-ONLY") and b"line 7" in s.out and b"line 8" not in s.out)
+check("shrinking redraws too", s.wait_for(b"READ-ONLY") and b"line 6" in s.out and b"line 7" not in s.out)
 s.resize(24, 80)
-s.wait_for(b"line 21")
+s.wait_for(b"line 20")
 
 s.mark(); s.send(b"q")
 st = s.status()
@@ -217,6 +220,7 @@ os.environ["NO_COLOR"] = "1"
 s = Session([BIN, PATCH])
 check("NO_COLOR draws without colors", s.wait_for(b"READ-ONLY") and no_color_ok(s.out), repr(s.out[:200]))
 check("NO_COLOR marks added rows with a sign", b"+" in s.out and b"@@ -0,0 +1,100 @@" in s.out)
+check("NO_COLOR draws the wave dim and plain", b"\x1b[0;2m" + b"~" * 80 in s.out, repr(s.out[:200]))
 s.send(b"q"); s.status()
 del os.environ["NO_COLOR"]
 s = Session([BIN, "--no-color", PATCH])

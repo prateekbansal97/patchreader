@@ -19,9 +19,9 @@
     } while (0)
 
 /* A three-file patch:
- *   a.c: three hunks of 4 rows each (hunk, context, del, add) = 12 rows,
- *        hunk rows at 0, 4 and 8
- *   b.c: one hunk, 3 rows
+ *   a.c: three hunks of 5 rows each (wave, hunk, context, del, add) = 15 rows,
+ *        wave rows at 0, 5 and 10
+ *   b.c: one hunk, 4 rows
  *   c.c: one hunk with a very long added line (80 columns) */
 static void make_patch(Buf *b) {
     buf_clear(b);
@@ -97,7 +97,7 @@ static void test_setup(void) {
     Fx x;
     REQUIRE(fx_open(&x, 0));
     CHECK(x.p.files.len == 3);
-    CHECK(x.m.rows.len == 12);
+    CHECK(x.m.rows.len == 15);
     CHECK(x.nav.file == 0 && x.nav.top == 0 && x.nav.left == 0 && !x.nav.quit);
     CHECK(x.nav.file_count == 3);
     fx_close(&x);
@@ -126,7 +126,7 @@ static void test_render_helpers(void) {
 static void test_vertical(void) {
     Fx x;
     REQUIRE(fx_open(&x, 0));
-    const int R = 6, C = 40; /* body 4 rows, page 3, half 2, max_top 8 */
+    const int R = 6, C = 40; /* body 4 rows, page 3, half 2, max_top 11 */
     Nav *n = &x.nav;
 
     press(&x, ch('j'), R, C); CHECK(n->top == 1);
@@ -140,14 +140,14 @@ static void test_vertical(void) {
     press(&x, ch('b'), R, C); CHECK(n->top == 1);
     press(&x, K(KEY_CTRL, 'd'), R, C); CHECK(n->top == 3);
     press(&x, K(KEY_CTRL, 'u'), R, C); CHECK(n->top == 1);
-    press(&x, ch('G'), R, C); CHECK(n->top == 8);
-    press(&x, ch('j'), R, C); CHECK(n->top == 8);          /* clamped at the end */
-    press(&x, K(KEY_PGDN, 0), R, C); CHECK(n->top == 8);
-    press(&x, K(KEY_CTRL, 'd'), R, C); CHECK(n->top == 8);
+    press(&x, ch('G'), R, C); CHECK(n->top == 11);
+    press(&x, ch('j'), R, C); CHECK(n->top == 11);         /* clamped at the end */
+    press(&x, K(KEY_PGDN, 0), R, C); CHECK(n->top == 11);
+    press(&x, K(KEY_CTRL, 'd'), R, C); CHECK(n->top == 11);
     press(&x, ch('g'), R, C); CHECK(n->top == 0);
     press(&x, ch('k'), R, C); CHECK(n->top == 0);          /* clamped at the start */
     press(&x, K(KEY_PGUP, 0), R, C); CHECK(n->top == 0);
-    press(&x, K(KEY_END, 0), R, C); CHECK(n->top == 8);
+    press(&x, K(KEY_END, 0), R, C); CHECK(n->top == 11);
     press(&x, K(KEY_HOME, 0), R, C); CHECK(n->top == 0);
 
     /* none of those changed the file or asked to quit */
@@ -165,27 +165,32 @@ static void test_hunks(void) {
     const int R = 6, C = 40;
     Nav *n = &x.nav;
 
-    press(&x, ch('}'), R, C); CHECK(n->top == 4);
-    press(&x, ch('}'), R, C); CHECK(n->top == 8);
-    press(&x, ch('}'), R, C); CHECK(n->top == 8); /* no later hunk */
-    press(&x, ch('{'), R, C); CHECK(n->top == 4);
+    /* a jump lands on the wave row above a hunk, so the separator stays visible */
+    press(&x, ch('}'), R, C); CHECK(n->top == 5);
+    press(&x, ch('}'), R, C); CHECK(n->top == 10);
+    press(&x, ch('}'), R, C); CHECK(n->top == 10); /* no later hunk */
+    press(&x, ch('{'), R, C); CHECK(n->top == 5);
     press(&x, ch('{'), R, C); CHECK(n->top == 0);
     press(&x, ch('{'), R, C); CHECK(n->top == 0); /* no earlier hunk */
 
-    press(&x, ch('J'), R, C); CHECK(n->top == 4);
-    n->top = 6;                                   /* between hunks */
-    press(&x, ch('K'), R, C); CHECK(n->top == 4);
-    n->top = 6;
-    press(&x, ch('}'), R, C); CHECK(n->top == 8);
+    press(&x, ch('J'), R, C); CHECK(n->top == 5);
+    n->top = 7;                                   /* between hunks */
+    press(&x, ch('K'), R, C); CHECK(n->top == 5);
+    n->top = 7;
+    press(&x, ch('}'), R, C); CHECK(n->top == 10);
     n->top = 1;
     press(&x, ch('{'), R, C); CHECK(n->top == 0);
 
+    /* the hunk row itself is not a stop: from the row below a wave, `{` goes back to it */
+    n->top = 6;
+    press(&x, ch('{'), R, C); CHECK(n->top == 5);
+
     /* a hunk below the last reachable top is clamped to it */
     n->top = 0;
-    press(&x, ch('}'), 12, C); /* body 10, max_top 2 */
-    CHECK(n->top == 2);
-    press(&x, ch('}'), 12, C);
-    CHECK(n->top == 2);
+    press(&x, ch('}'), 12, C); /* body 10, max_top 5 */
+    CHECK(n->top == 5);
+    press(&x, ch('}'), 12, C); /* the wave at 10 is past max_top */
+    CHECK(n->top == 5);
     press(&x, ch('{'), 12, C);
     CHECK(n->top == 0);
 
@@ -217,7 +222,7 @@ static void test_files(void) {
     CHECK(press(&x, ch(']'), R, C) == true);
     CHECK(n->file == 1 && n->top == 0 && n->left == 0);
     CHECK(x.m.file == vec_at(&x.p.files, 1));
-    CHECK(x.m.rows.len == 3);
+    CHECK(x.m.rows.len == 4);
 
     CHECK(press(&x, K(KEY_TAB, 0), R, C) == true);
     CHECK(n->file == 2);
@@ -325,27 +330,27 @@ static void test_clamp(void) {
     x.nav.top = 1000;
     x.nav.left = 1000;
     nav_clamp(&x.nav, &x.m, 6, 40);
-    CHECK(x.nav.top == 8 && x.nav.left == 0);
+    CHECK(x.nav.top == 11 && x.nav.left == 0);
 
     x.nav.top = SIZE_MAX;
     nav_clamp(&x.nav, &x.m, 6, 40);
-    CHECK(x.nav.top == 8);
+    CHECK(x.nav.top == 11);
 
     /* the window grows: top is pulled back so the last row stays at the bottom */
     nav_clamp(&x.nav, &x.m, 12, 40);
-    CHECK(x.nav.top == 2);
+    CHECK(x.nav.top == 5);
     nav_clamp(&x.nav, &x.m, 24, 40);
     CHECK(x.nav.top == 0);
 
     /* positions near SIZE_MAX do not wrap on scrolling */
     x.nav.top = SIZE_MAX;
     CHECK(!nav_key(&x.nav, ch('j'), &x.m, 6, 40));
-    CHECK(x.nav.top == 8);
+    CHECK(x.nav.top == 11);
     x.nav.top = SIZE_MAX;
     CHECK(!nav_key(&x.nav, ch('}'), &x.m, 6, 40));
     x.nav.top = SIZE_MAX;
     CHECK(!nav_key(&x.nav, ch('{'), &x.m, 6, 40));
-    CHECK(x.nav.top == 8);
+    CHECK(x.nav.top == 10); /* the last wave row */
     fx_close(&x);
 }
 

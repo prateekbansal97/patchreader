@@ -9,7 +9,7 @@
 
 typedef struct {
     const char *reset;
-    const char *header, *bar, *hunk, *note;
+    const char *header, *bar, *hunk, *wave, *note;
     const char *ctx_gutter, *add_gutter, *del_gutter;
     const char *ctx_text, *add_text, *del_text;
     const char *add_word, *del_word; /* changed words inside a row */
@@ -22,6 +22,7 @@ static const Theme THEME_TRUE = {
     .header = "\x1b[0;1;38;2;220;220;220;48;2;60;63;65m",
     .bar = "\x1b[0;7m",
     .hunk = "\x1b[0;38;2;125;150;205;48;2;43;48;66m",
+    .wave = "\x1b[0;38;2;110;110;110m",
     .note = "\x1b[0;2m",
     .ctx_gutter = "\x1b[0;38;2;120;120;120m",
     .add_gutter = "\x1b[0;38;2;120;150;125;48;2;36;68;46m",
@@ -40,6 +41,7 @@ static const Theme THEME_256 = {
     .header = "\x1b[0;1;38;5;252;48;5;238m",
     .bar = "\x1b[0;7m",
     .hunk = "\x1b[0;38;5;110;48;5;236m",
+    .wave = "\x1b[0;38;5;242m",
     .note = "\x1b[0;2m",
     .ctx_gutter = "\x1b[0;38;5;244m",
     .add_gutter = "\x1b[0;38;5;108;48;5;22m",
@@ -59,6 +61,7 @@ static const Theme THEME_MONO = {
     .header = "\x1b[0;1;7m",
     .bar = "\x1b[0;7m",
     .hunk = "\x1b[0;1m",
+    .wave = "\x1b[0;2m",
     .note = "\x1b[0;2m",
     .ctx_gutter = "\x1b[0;2m",
     .add_gutter = "\x1b[0;2m",
@@ -242,6 +245,13 @@ static bool search_marks(const RenderView *v, const Row *r, Vec *spans) {
     return spans->len > 0;
 }
 
+/* Above every hunk: a wavy line across the whole width. */
+static void draw_wave_row(Buf *o, const Theme *t, size_t cols) {
+    buf_puts(o, t->wave);
+    for(size_t i = 0; i < cols; i++) buf_putc(o, '~');
+    buf_puts(o, t->reset);
+}
+
 static void draw_text_row(Buf *o, const Theme *t, const RenderView *v, const Row *r,
                           size_t cols) {
     const char *style = r->kind == ROW_HUNK ? t->hunk : t->note;
@@ -379,7 +389,8 @@ void render_frame(Buf *out, const RenderView *v) {
         }
         if (checked_add(v->top, i, &idx) && idx < v->model->rows.len) {
             const Row *r = vec_at(&v->model->rows, idx);
-            if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) draw_text_row(out, t, v, r, cols);
+            if (r->kind == ROW_WAVE) draw_wave_row(out, t, cols);
+            else if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) draw_text_row(out, t, v, r, cols);
             else draw_diff_row(out, t, v, r, cols);
         } else {
             buf_puts(out, "\x1b[0m\x1b[2K");

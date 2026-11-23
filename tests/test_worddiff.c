@@ -406,55 +406,58 @@ static void expect_pairs(const Mx *x, const char *what, const long *pairs) {
 static void test_pairing(void) {
     Mx x;
 
+    /* every hunk starts with a wave row and a hunk row, which never pair */
     /* -a -b +c +d  ->  a<->c, b<->d */
     {
         static const char P[] = HDR "@@ -1,2 +1,2 @@\n-a\n-b\n+c\n+d\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, 3, 4, 1, 2};
-        CHECK(x.m.rows.len == 5);
-        if (x.m.rows.len == 5) expect_pairs(&x, "2x2", want);
+        static const long want[] = {-1, -1, 4, 5, 2, 3};
+        CHECK(x.m.rows.len == 6);
+        if (x.m.rows.len == 6) expect_pairs(&x, "2x2", want);
         mx_close(&x);
     }
     /* more removed than added: only the first rows pair */
     {
         static const char P[] = HDR "@@ -1,3 +1 @@\n-a\n-b\n-c\n+d\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, 4, -1, -1, 1};
-        CHECK(x.m.rows.len == 5);
-        if (x.m.rows.len == 5) expect_pairs(&x, "3x1", want);
+        static const long want[] = {-1, -1, 5, -1, -1, 2};
+        CHECK(x.m.rows.len == 6);
+        if (x.m.rows.len == 6) expect_pairs(&x, "3x1", want);
         mx_close(&x);
     }
     /* more added than removed */
     {
         static const char P[] = HDR "@@ -1 +1,3 @@\n-a\n+b\n+c\n+d\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, 2, 1, -1, -1};
-        CHECK(x.m.rows.len == 5);
-        if (x.m.rows.len == 5) expect_pairs(&x, "1x3", want);
+        static const long want[] = {-1, -1, 3, 2, -1, -1};
+        CHECK(x.m.rows.len == 6);
+        if (x.m.rows.len == 6) expect_pairs(&x, "1x3", want);
         mx_close(&x);
     }
     /* only adds, only removes, only context */
     {
         static const char P[] = HDR "@@ -0,0 +1,2 @@\n+a\n+b\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, -1, -1};
-        expect_pairs(&x, "adds", want);
+        static const long want[] = {-1, -1, -1, -1};
+        CHECK(x.m.rows.len == 4);
+        if (x.m.rows.len == 4) expect_pairs(&x, "adds", want);
         mx_close(&x);
     }
     {
         static const char P[] = HDR "@@ -1,2 +0,0 @@\n-a\n-b\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, -1, -1};
-        expect_pairs(&x, "dels", want);
+        static const long want[] = {-1, -1, -1, -1};
+        CHECK(x.m.rows.len == 4);
+        if (x.m.rows.len == 4) expect_pairs(&x, "dels", want);
         mx_close(&x);
     }
     /* interleaved blocks separated by context pair independently */
     {
         static const char P[] = HDR "@@ -1,4 +1,4 @@\n-a\n+b\n k\n-c\n+d\n m\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, 2, 1, -1, 5, 4, -1};
-        CHECK(x.m.rows.len == 7);
-        if (x.m.rows.len == 7) expect_pairs(&x, "two blocks", want);
+        static const long want[] = {-1, -1, 3, 2, -1, 6, 5, -1};
+        CHECK(x.m.rows.len == 8);
+        if (x.m.rows.len == 8) expect_pairs(&x, "two blocks", want);
         mx_close(&x);
     }
     /* adds before removes in the patch do not pair (git always writes
@@ -462,26 +465,27 @@ static void test_pairing(void) {
     {
         static const char P[] = HDR "@@ -1 +1 @@\n+b\n-a\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, -1, -1};
-        expect_pairs(&x, "add first", want);
+        static const long want[] = {-1, -1, -1, -1};
+        CHECK(x.m.rows.len == 4);
+        if (x.m.rows.len == 4) expect_pairs(&x, "add first", want);
         mx_close(&x);
     }
     /* a block never pairs across a hunk boundary */
     {
         static const char P[] = HDR "@@ -1 +1,0 @@\n-a\n@@ -9,0 +8 @@\n+b\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, -1, -1, -1};
-        CHECK(x.m.rows.len == 4);
-        if (x.m.rows.len == 4) expect_pairs(&x, "across hunks", want);
+        static const long want[] = {-1, -1, -1, -1, -1, -1};
+        CHECK(x.m.rows.len == 6);
+        if (x.m.rows.len == 6) expect_pairs(&x, "across hunks", want);
         mx_close(&x);
     }
     /* the no-newline marker does not break a block */
     {
         static const char P[] = HDR "@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n\\ No newline at end of file\n";
         REQUIRE(mx_open(&x, P, sizeof P - 1));
-        static const long want[] = {-1, 2, 1};
-        CHECK(x.m.rows.len == 3);
-        if (x.m.rows.len == 3) expect_pairs(&x, "no eol", want);
+        static const long want[] = {-1, -1, 3, 2};
+        CHECK(x.m.rows.len == 4);
+        if (x.m.rows.len == 4) expect_pairs(&x, "no eol", want);
         mx_close(&x);
     }
 }
@@ -630,41 +634,41 @@ static void test_render_marks(void) {
     Mx x;
     Scr s;
     REQUIRE(mx_open(&x, P, sizeof P - 1));
-    /* rows: 0 hunk, 1 del, 2 del, 3 add, 4 add -> screen rows 3..6 */
+    /* rows: 0 wave, 1 hunk, 2 del, 3 del, 4 add, 5 add -> screen rows 4..7 */
     draw(&x, 0, 12, 80, true, &s);
     CHECK(geometry_ok(&s, 12, 80));
 
     Buf t;
     buf_init(&t);
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "int10") == 0);
     buf_clear(&t);
-    word_text(&s.raw[2], ADD_WORD_T, &t);
+    word_text(&s.raw[3], ADD_WORD_T, &t);
     CHECK(t.len == 0); /* a removed row never uses the added-word color */
     buf_clear(&t);
-    word_text(&s.raw[4], ADD_WORD_T, &t);
+    word_text(&s.raw[5], ADD_WORD_T, &t);
     CHECK(strcmp(t.data, "long20") == 0);
     buf_clear(&t);
-    word_text(&s.raw[4], DEL_WORD_T, &t);
+    word_text(&s.raw[5], DEL_WORD_T, &t);
     CHECK(t.len == 0);
 
     /* "return count;" has nothing removed: no marks on the removed row, the
      * inserted " + 1" is marked on the added row */
-    CHECK(strstr(s.raw[3].data, DEL_WORD_T) == NULL);
+    CHECK(strstr(s.raw[4].data, DEL_WORD_T) == NULL);
     buf_clear(&t);
-    word_text(&s.raw[5], ADD_WORD_T, &t);
+    word_text(&s.raw[6], ADD_WORD_T, &t);
     CHECK(strcmp(t.data, " + 1") == 0);
 
     /* plain text is exactly the line, marked or not */
-    CHECK(strstr(s.plain[2].data, "int count = compute_total(items, 10);") != NULL);
-    CHECK(strstr(s.plain[4].data, "long count = compute_total(items, 20);") != NULL);
+    CHECK(strstr(s.plain[3].data, "int count = compute_total(items, 10);") != NULL);
+    CHECK(strstr(s.plain[5].data, "long count = compute_total(items, 20);") != NULL);
     buf_free(&t);
     scr_free(&s);
 
     draw(&x, 0, 12, 80, false, &s);
-    CHECK(strstr(s.raw[2].data, "48;5;88") != NULL);
-    CHECK(strstr(s.raw[4].data, "48;5;28") != NULL);
-    CHECK(strstr(s.raw[2].data, "48;2;") == NULL);
+    CHECK(strstr(s.raw[3].data, "48;5;88") != NULL);
+    CHECK(strstr(s.raw[5].data, "48;5;28") != NULL);
+    CHECK(strstr(s.raw[3].data, "48;2;") == NULL);
     scr_free(&s);
     mx_close(&x);
 }
@@ -677,13 +681,13 @@ static void test_render_no_marks(void) {
     REQUIRE(mx_open(&x, P, sizeof P - 1));
     draw(&x, 0, 10, 60, true, &s);
     CHECK(geometry_ok(&s, 10, 60));
-    for (int r = 2; r <= 6; r++) {
+    for (int r = 2; r <= 7; r++) {
         CHECK(strstr(s.raw[r - 1].data, ADD_WORD_T) == NULL);
         CHECK(strstr(s.raw[r - 1].data, DEL_WORD_T) == NULL);
     }
     /* whole-row colors are still there */
-    CHECK(strstr(s.raw[2].data, "48;2;82;38;42") != NULL);
-    CHECK(strstr(s.raw[3].data, "48;2;36;68;46") != NULL);
+    CHECK(strstr(s.raw[3].data, "48;2;82;38;42") != NULL);
+    CHECK(strstr(s.raw[4].data, "48;2;36;68;46") != NULL);
     scr_free(&s);
     mx_close(&x);
 }
@@ -696,10 +700,10 @@ static void test_render_padding(void) {
     REQUIRE(mx_open(&x, P, sizeof P - 1));
     draw(&x, 0, 8, 40, true, &s);
     CHECK(geometry_ok(&s, 8, 40));
-    for (int r = 3; r <= 4; r++) {
+    for (int r = 4; r <= 5; r++) {
         const char *raw = s.raw[r - 1].data;
         const char *last = NULL;
-        for (const char *p = raw; (p = strstr(p, r == 3 ? DEL_WORD_T : ADD_WORD_T)) != NULL; p++) last = p;
+        for (const char *p = raw; (p = strstr(p, r == 4 ? DEL_WORD_T : ADD_WORD_T)) != NULL; p++) last = p;
         CHECK(last != NULL);
         if (!last) continue;
         int escapes = 0;
@@ -710,7 +714,7 @@ static void test_render_padding(void) {
     }
     Buf t;
     buf_init(&t);
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "baz") == 0);
     buf_free(&t);
     scr_free(&s);
@@ -728,27 +732,27 @@ static void test_render_scrolled(void) {
 
     /* gutter is 5 columns; "changed" sits at text columns 11..17 */
     draw(&x, 0, 8, 60, true, &s);
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "changed") == 0);
     scr_free(&s);
 
     buf_clear(&t);
     draw(&x, 14, 8, 60, true, &s); /* first four letters scrolled off */
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "nged") == 0);
     CHECK(geometry_ok(&s, 8, 60));
     scr_free(&s);
 
     buf_clear(&t);
     draw(&x, 18, 8, 60, true, &s); /* the whole mark is off screen */
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(t.len == 0);
-    CHECK(strstr(s.plain[2].data, "tail text here") != NULL);
+    CHECK(strstr(s.plain[3].data, "tail text here") != NULL);
     scr_free(&s);
 
     buf_clear(&t);
     draw(&x, 0, 8, 5 + 14, true, &s); /* the window ends in the middle of the mark */
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "cha") == 0);
     CHECK(geometry_ok(&s, 8, 19));
     scr_free(&s);
@@ -781,7 +785,7 @@ static void test_render_wide(void) {
     draw(&x, 0, 8, 40, true, &s);
     Buf t;
     buf_init(&t);
-    word_text(&s.raw[2], DEL_WORD_T, &t);
+    word_text(&s.raw[3], DEL_WORD_T, &t);
     CHECK(strcmp(t.data, "abc") == 0);
     buf_free(&t);
     scr_free(&s);

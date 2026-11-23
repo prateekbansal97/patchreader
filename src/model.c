@@ -19,6 +19,13 @@ static void set_text(Model *m, Row *r, const char *s, size_t n) {
     r->len = n;
 }
 
+ /* The wavy separator drawn above each hunk row. It has no text. */
+static void wave_row(Model *m) {
+    Row *r = vec_push(&m->rows);
+    r->kind = ROW_WAVE;
+    set_text(m, r, "", 0);
+}
+
 static void hunk_row(Model *m, const Patch *p, const Hunk *h) {
     char nums[128];
     int k = snprintf(nums, sizeof nums, "@@ -%zu,%zu +%zu,%zu @@", h->old_start, h->old_count,
@@ -99,6 +106,7 @@ void model_build(Model *m, const Patch *p, const FileDiff *f) {
     size_t max_old = 0, max_new = 0;
     for (size_t i = 0; i < f->hunks.len; i++) {
         const Hunk *h = vec_at(&f->hunks, i);
+        wave_row(m);
         hunk_row(m, p, h);
         size_t first_line_row = m->rows.len;
 

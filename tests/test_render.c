@@ -187,12 +187,12 @@ static void test_helpers(void) {
     CHECK(render_body_rows(-5) == 0);
 
     Rx x;
-    REQUIRE(rx_open(&x, TWO, sizeof TWO - 1, 0)); /* 5 rows: hunk + 4 lines */
-    CHECK(x.m.rows.len == 5);
+    REQUIRE(rx_open(&x, TWO, sizeof TWO - 1, 0)); /* 6 rows: wave, hunk + 4 lines */
+    CHECK(x.m.rows.len == 6);
     CHECK(render_max_top(&x.m, 24) == 0);
-    CHECK(render_max_top(&x.m, 5) == 2);  /* body 3 */
-    CHECK(render_max_top(&x.m, 3) == 4);  /* body 1 */
-    CHECK(render_max_top(&x.m, 1) == 5);  /* body 0 */
+    CHECK(render_max_top(&x.m, 5) == 3);  /* body 3 */
+    CHECK(render_max_top(&x.m, 3) == 5);  /* body 1 */
+    CHECK(render_max_top(&x.m, 1) == 6);  /* body 0 */
     rx_close(&x);
 }
 
@@ -208,15 +208,19 @@ static void test_layout(void) {
     CHECK(ends(&s, 1, "  +1 -1 "));
     CHECK(raw_has(&s, 1, "48;2;60;63;65"));
 
-    /* hunk row, then gutters: widths are 2 and 2 for line numbers up to 10 */
-    CHECK(starts(&s, 2, " @@ -8,3 +8,3 @@ int main"));
-    CHECK(starts(&s, 3, "  8  8 keep"));
-    CHECK(starts(&s, 4, "  9    old line"));
-    CHECK(starts(&s, 5, "     9 new line"));
-    CHECK(starts(&s, 6, " 10 10 tail"));
+    /* the wave above the hunk spans the whole width, then the hunk row, then
+     * gutters: widths are 2 and 2 for line numbers up to 10 */
+    CHECK(starts(&s, 2, "~~~~"));
+    CHECK(s.plain[1].len == 60);
+    for (size_t i = 0; i < s.plain[1].len; i++) CHECK(s.plain[1].data[i] == '~');
+    CHECK(starts(&s, 3, " @@ -8,3 +8,3 @@ int main"));
+    CHECK(starts(&s, 4, "  8  8 keep"));
+    CHECK(starts(&s, 5, "  9    old line"));
+    CHECK(starts(&s, 6, "     9 new line"));
+    CHECK(starts(&s, 7, " 10 10 tail"));
 
     /* rows past the content are erased */
-    CHECK(s.plain[6].len == 0 && raw_has(&s, 7, "\x1b[2K"));
+    CHECK(s.plain[7].len == 0 && raw_has(&s, 8, "\x1b[2K"));
     CHECK(s.plain[10].len == 0);
 
     /* bottom bar */
@@ -232,8 +236,9 @@ static void test_layout(void) {
     draw(&x, 1, 2, 0, 0, 10, 40, true, &s);
     CHECK(starts(&s, 1, " 2/2 files   M  b.txt"));
     CHECK(ends(&s, 1, "  +1 -1 "));
-    CHECK(starts(&s, 3, " 1   x"));
-    CHECK(starts(&s, 4, "   1 y"));
+    CHECK(starts(&s, 2, "~~~~"));
+    CHECK(starts(&s, 4, " 1   x"));
+    CHECK(starts(&s, 5, "   1 y"));
     CHECK(geometry_ok(&s, 10, 40));
     scr_free(&s);
     rx_close(&x);
@@ -245,19 +250,22 @@ static void test_colors(void) {
     REQUIRE(rx_open(&x, TWO, sizeof TWO - 1, 0));
 
     draw(&x, 0, 2, 0, 0, 10, 50, true, &s);
-    CHECK(raw_has(&s, 4, "48;2;82;38;42"));  /* removed: red */
-    CHECK(!raw_has(&s, 4, "48;2;36;68;46"));
-    CHECK(raw_has(&s, 5, "48;2;36;68;46"));  /* added: green */
-    CHECK(!raw_has(&s, 5, "48;2;82;38;42"));
-    CHECK(raw_has(&s, 2, "48;2;43;48;66"));  /* hunk header */
-    CHECK(!strstr(s.raw[2].data, "48;")); /* context row: no background */
-    CHECK(!strstr(s.raw[5].data, "48;"));
+    CHECK(raw_has(&s, 5, "48;2;82;38;42"));  /* removed: red */
+    CHECK(!raw_has(&s, 5, "48;2;36;68;46"));
+    CHECK(raw_has(&s, 6, "48;2;36;68;46"));  /* added: green */
+    CHECK(!raw_has(&s, 6, "48;2;82;38;42"));
+    CHECK(raw_has(&s, 3, "48;2;43;48;66"));  /* hunk header */
+    CHECK(raw_has(&s, 2, "38;2;110;110;110")); /* wave: gray text */
+    CHECK(!strstr(s.raw[1].data, "48;"));    /* ... and no background */
+    CHECK(!strstr(s.raw[3].data, "48;")); /* context row: no background */
+    CHECK(!strstr(s.raw[6].data, "48;"));
     scr_free(&s);
 
     draw(&x, 0, 2, 0, 0, 10, 50, false, &s);
-    CHECK(raw_has(&s, 4, "48;5;52"));
-    CHECK(raw_has(&s, 5, "48;5;22"));
-    CHECK(raw_has(&s, 2, "48;5;236"));
+    CHECK(raw_has(&s, 5, "48;5;52"));
+    CHECK(raw_has(&s, 6, "48;5;22"));
+    CHECK(raw_has(&s, 3, "48;5;236"));
+    CHECK(raw_has(&s, 2, "38;5;242"));
     CHECK(!strstr(s.raw[3].data, "38;2;"));
     CHECK(!strstr(s.raw[1].data, "38;2;"));
     scr_free(&s);
@@ -269,8 +277,8 @@ static void test_scroll(void) {
     Scr s;
     REQUIRE(rx_open(&x, TWO, sizeof TWO - 1, 0));
 
-    /* top = 2: hunk row and first context row are scrolled off */
-    draw(&x, 0, 2, 2, 0, 8, 50, true, &s);
+    /* top = 3: wave, hunk row and first context row are scrolled off */
+    draw(&x, 0, 2, 3, 0, 8, 50, true, &s);
     CHECK(starts(&s, 2, "  9    old line"));
     CHECK(starts(&s, 3, "     9 new line"));
     CHECK(starts(&s, 4, " 10 10 tail"));
@@ -278,9 +286,9 @@ static void test_scroll(void) {
     CHECK(ends(&s, 8, "  100% "));
     scr_free(&s);
 
-    /* partial view: 3 of 5 rows visible -> 60% */
+    /* partial view: 3 of 6 rows visible -> 50% */
     draw(&x, 0, 2, 0, 0, 5, 50, true, &s);
-    CHECK(ends(&s, 5, " READ-ONLY  60% "));
+    CHECK(ends(&s, 5, " READ-ONLY  50% "));
     CHECK(geometry_ok(&s, 5, 50));
     scr_free(&s);
 
@@ -309,25 +317,26 @@ static void test_horizontal(void) {
     REQUIRE(rx_open(&x, P, sizeof P - 1, 0));
 
     draw(&x, 0, 1, 0, 0, 6, 16, true, &s);
-    CHECK(starts(&s, 3, " 1   0123456789a")); /* gutter is 5 columns, 11 left for text */
+    CHECK(starts(&s, 4, " 1   0123456789a")); /* gutter is 5 columns, 11 left for text */
     CHECK(geometry_ok(&s, 6, 16));
     scr_free(&s);
 
     draw(&x, 0, 1, 0, 10, 6, 16, true, &s);
-    CHECK(starts(&s, 3, " 1   abcdef"));
-    CHECK(starts(&s, 4, "   1 ABCDEF"));
+    CHECK(starts(&s, 4, " 1   abcdef"));
+    CHECK(starts(&s, 5, "   1 ABCDEF"));
     CHECK(geometry_ok(&s, 6, 16));
     scr_free(&s);
 
     /* scrolled past the end of the line: gutter stays, text is empty */
     draw(&x, 0, 1, 0, 500, 6, 16, true, &s);
-    CHECK(starts(&s, 3, " 1   "));
+    CHECK(starts(&s, 4, " 1   "));
     CHECK(geometry_ok(&s, 6, 16));
     scr_free(&s);
 
-    /* the hunk row ignores horizontal scrolling */
+    /* the wave and hunk rows ignore horizontal scrolling */
     draw(&x, 0, 1, 0, 3, 6, 30, true, &s);
-    CHECK(starts(&s, 2, " @@ -1,1 +1,1 @@"));
+    CHECK(starts(&s, 2, "~~~~"));
+    CHECK(starts(&s, 3, " @@ -1,1 +1,1 @@"));
     scr_free(&s);
     rx_close(&x);
 }
@@ -345,12 +354,12 @@ static void test_content_safety(void) {
     draw(&x, 0, 1, 0, 0, 10, 40, true, &s);
     CHECK(s.ok); /* no escape sequence other than our own */
     CHECK(geometry_ok(&s, 10, 40));
-    CHECK(has(&s, 3, "\xe2\x90\x9b[31mred")); /* ESC shown as U+241B */
-    CHECK(has(&s, 3, "    tab"));              /* tab expanded */
-    CHECK(has(&s, 4, "old \xe2\x90\x87"));    /* BEL shown as U+2407 */
-    CHECK(has(&s, 5, "\xe4\xb8\xad\xe6\x96\x87 wide \xef\xbf\xbd\xef\xbf\xbd"));
-    CHECK(ends(&s, 5, "  [no newline]") == 0); /* padded after the marker */
-    CHECK(has(&s, 5, "  [no newline]"));
+    CHECK(has(&s, 4, "\xe2\x90\x9b[31mred")); /* ESC shown as U+241B */
+    CHECK(has(&s, 4, "    tab"));              /* tab expanded */
+    CHECK(has(&s, 5, "old \xe2\x90\x87"));    /* BEL shown as U+2407 */
+    CHECK(has(&s, 6, "\xe4\xb8\xad\xe6\x96\x87 wide \xef\xbf\xbd\xef\xbf\xbd"));
+    CHECK(ends(&s, 6, "  [no newline]") == 0); /* padded after the marker */
+    CHECK(has(&s, 6, "  [no newline]"));
     scr_free(&s);
 
     /* a wide character cut by the text edge shows as a space, width intact */
@@ -437,9 +446,9 @@ static void test_wide_line_numbers(void) {
     Scr s;
     REQUIRE(rx_open(&x, P, sizeof P - 1, 0));
     draw(&x, 0, 1, 0, 0, 8, 40, true, &s);
-    CHECK(starts(&s, 3, " 99998  99998 a"));
-    CHECK(starts(&s, 4, "        99999 b"));
-    CHECK(starts(&s, 5, " 99999 100000 c"));
+    CHECK(starts(&s, 4, " 99998  99998 a"));
+    CHECK(starts(&s, 5, "        99999 b"));
+    CHECK(starts(&s, 6, " 99999 100000 c"));
     CHECK(geometry_ok(&s, 8, 40));
     scr_free(&s);
     rx_close(&x);
