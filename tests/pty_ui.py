@@ -23,7 +23,13 @@ def new_home():
     return d
 
 new_home()
-ENTER = b"\x1b[?1049h\x1b[?25l"
+
+# The first launch of a freshly built binary can take seconds (macOS checks new
+# executables). Run it once here so the timed waits below measure the program,
+# not the system.
+subprocess.run([BIN, "--version"], capture_output=True)
+
+ENTER =b"\x1b[?1049h\x1b[?25l"
 LEAVE = b"\x1b[0m\x1b[?25h\x1b[?1049l"
 WAVE = b"~" * 8
 fails = 0
@@ -84,7 +90,7 @@ class Session:
 # ---- 1. drawing, scrolling, keys, resize, quit, restore ----
 os.environ["COLORTERM"] = "truecolor"
 s = Session([BIN, PATCH])
-check("enters alternate screen + hides cursor", s.wait_for(ENTER), repr(s.out[:80]))
+check("enters alternate screen + hides cursor", s.wait_for(ENTER, 10.0), repr(s.out[:80]))
 check("first frame drawn", s.wait_for(b"READ-ONLY"))
 check("header shows file count and path", b"1/3 files" in s.out and b"big.txt" in s.out and b"+100 -0" in s.out)
 check("hunk row drawn", b"@@ -0,0 +1,100 @@" in s.out)
@@ -247,7 +253,7 @@ del os.environ["NO_COLOR"]
 # ---- 2. fatal signals restore the terminal ----
 for sig, label in ((signal.SIGTERM, "SIGTERM"), (signal.SIGHUP, "SIGHUP"), (signal.SIGINT, "SIGINT")):
     s = Session([BIN, PATCH])
-    s.wait_for(b"READ-ONLY")
+    check(label + ": the UI is up before the signal", s.wait_for(b"READ-ONLY", 10.0), repr(s.out[-60:]))
     s.mark()
     os.kill(s.pid, sig)
     st = s.status()
@@ -259,7 +265,7 @@ for sig, label in ((signal.SIGTERM, "SIGTERM"), (signal.SIGHUP, "SIGHUP"), (sign
 for sig, label in ((signal.SIGABRT, "SIGABRT"), (signal.SIGSEGV, "SIGSEGV"), (signal.SIGBUS, "SIGBUS"),
                    (signal.SIGFPE, "SIGFPE"), (signal.SIGILL, "SIGILL")):
     s = Session([BIN, PATCH])
-    s.wait_for(b"READ-ONLY")
+    check(label + ": the UI is up before the signal", s.wait_for(b"READ-ONLY", 10.0), repr(s.out[-60:]))
     s.mark()
     os.kill(s.pid, sig)
     st = s.status()
@@ -269,7 +275,7 @@ for sig, label in ((signal.SIGABRT, "SIGABRT"), (signal.SIGSEGV, "SIGSEGV"), (si
 
 # Ctrl-C typed on the keyboard
 s = Session([BIN, PATCH])
-s.wait_for(b"READ-ONLY")
+check("Ctrl-C: the UI is up first", s.wait_for(b"READ-ONLY", 10.0), repr(s.out[-60:]))
 s.mark(); s.send(b"\x03")
 st = s.status()
 s.pump(0.2)
