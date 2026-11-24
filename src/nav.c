@@ -10,6 +10,8 @@
 
 #define PAN_STEP 8
 
+_Static_assert(HISTORY_TEXT <= NAV_TEXT_MAX, "a history entry must fit the search prompt");
+
 static size_t scroll_down(size_t pos, size_t n, size_t max) {
     if (pos >= max) return max;
     return n > max - pos ? max : pos + n;
@@ -59,6 +61,7 @@ void nav_init(Nav *n, size_t file_count) {
     memset(n, 0, sizeof *n);
     n->file_count = file_count;
     n->hit = SIZE_MAX;
+    n->hist_pos = SIZE_MAX;
 }
 
 static bool row_matches(const Nav *n, const Row *r, bool icase) {
@@ -121,6 +124,35 @@ static void search_step(Nav *n, const Model *m, int dir, int rows) {
              wrapped ? "  (wrapped)" : "");
 }
 
+static void history_show(Nav *n, const char *s, size_t len) {
+    memcpy(n->input, s, len);
+    n->input[len] = '\0';
+    n->input_len = len;
+}
+
+/* Up (dir < 0) and Down (dir > 0) in the search prompt: older and newer
+ * searches. Going down past the newest brings back what was being typed. */
+static void history_step(Nav *n, int dir) {
+    const History *h = n->hist;
+    if (h == NULL || h->count == 0) return;
+    if (n->hist_pos != SIZE_MAX && n->hist_pos >= h->count) n->hist_pos = SIZE_MAX;
+    if (n->hist_pos == SIZE_MAX) {
+        if (dir > 0) return;
+        memcpy(n->draft, n->input, n->input_len + 1);
+        n->draft_len = n->input_len;
+        n->hist_pos = h->count - 1;
+    } else if (dir < 0) {
+        if (n->hist_pos > 0) n->hist_pos--;
+    } else if (n->hist_pos + 1 < h->count) {
+        n->hist_pos++;
+    } else {
+        n->hist_pos = SIZE_MAX;
+        history_show(n, n->draft, n->draft_len);
+        return;
+    }
+    history_show(n, h->items[n->hist_pos], strlen(h->items[n->hist_pos]));
+}
+
 static void search_key(Nav *n, Key k, const Model *m, int rows) {
     switch (k.type) {
     case KEY_EOF: n->quit = true; break;
@@ -131,9 +163,12 @@ static void search_key(Nav *n, Key k, const Model *m, int rows) {
             memcpy(n->query, n->input, n->input_len + 1);
             n->query_len = n->input_len;
             n->hit = SIZE_MAX;
+            if (n->hist != NULL && history_add(n->hist, n->query, n->query_len)) n->hist_dirty = true; 
         }
         search_step(n, m, +1, rows);
         break;
+    case KEY_UP: history_step(n, -1); break;
+    case KEY_DOWN: history_step(n, +1); break;
     case KEY_BACKSPACE:
         if (n->input_len == 0) {
             n->mode = NAV_VIEW;
@@ -299,6 +334,7 @@ bool nav_key(Nav *n, Key k, const Model *m, int rows, int cols) {
             n->mode = NAV_SEARCH;
             n->input_len = 0;
             n->input[0] = '\0';
+            n->hist_pos = SIZE_MAX;
             break;
         case 'n': search_step(n, m, +1, rows); break;
         case 'N': search_step(n, m, -1, rows); break;

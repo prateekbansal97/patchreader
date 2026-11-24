@@ -1,5 +1,6 @@
 import os, pty, sys, time, select, signal, struct, fcntl, termios, subprocess
 
+import shutil
 import tempfile
 
 BIN = os.path.abspath(sys.argv[1])
@@ -11,6 +12,17 @@ for name in ("src/a.c", "src/b.c"):
     _tmp.write("diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n@@ -1,2 +1,2 @@\n one\n-two\n+three\n" % (name, name, name, name))
 _tmp.close()
 PATCH = _tmp.name
+# The program keeps its search history in $HOME: never let these tests touch
+# the real one.
+_homes = []
+
+def new_home():
+    d = tempfile.mkdtemp(prefix="patchreader-home-")
+    _homes.append(d)
+    os.environ["HOME"] = d
+    return d
+
+new_home()
 ENTER = b"\x1b[?1049h\x1b[?25l"
 LEAVE = b"\x1b[0m\x1b[?25h\x1b[?1049l"
 WAVE = b"~" * 8
@@ -306,6 +318,146 @@ s.wait_for(b"big.txt")
 check("--list on a tty does not open the UI", ENTER not in s.out)
 s.status()
 
+# ---- 6. search history: kept in $HOME/.patchreader_history between runs ----
+def read_hist(home):
+    try:
+        with open(os.path.join(home, ".patchreader_history"), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+def quit_ok(sess):
+    sess.send(b"q")
+    st = sess.status()
+    return st is not None and os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0
+
+home = new_home()
+hist = os.path.join(home, ".patchreader_history")
+check("history: no file before any search", read_hist(home) is None)
+
+s = Session([BIN, PATCH])
+s.wait_for(b"READ-ONLY")
+s.send(b"/line 5\r")
+check("history: a search runs", s.wait_for(b"/line 5  1/11"), repr(s.out[-100:]))
+check("history: the search is saved at once", read_hist(home) == b"line 5\n", repr(read_hist(home)))
+check("history: the file is private (0600)", (os.stat(hist).st_mode & 0o777) == 0o600, oct(os.stat(hist).st_mode))
+s.mark(); s.send(b"/line 9\r")
+check("history: a second search", s.wait_for(b"/line 9  1/11"))
+check("history: both are saved, newest last", read_hist(home) == b"line 5\nline 9\n", repr(read_hist(home)))
+s.mark(); s.send(b"/"); s.send(b"x"); s.send(b"\x7f"); s.send(b"\x1b")
+s.pump(0.3)
+check("history: Esc records nothing", read_hist(home) == b"line 5\nline 9\n")
+check("history: q exits cleanly", quit_ok(s))
+check("history: no temporary file is left", os.listdir(home) == [".patchreader_history"], str(os.listdir(home)))
+
+# a new run remembers: Up in the prompt walks back through the searches
+s = Session([BIN, PATCH])
+s.wait_for(b"READ-ONLY")
+s.mark(); s.send(b"/")
+s.pump(0.2)
+s.mark(); s.send(b"\x1b[A")
+check("history: Up recalls the newest search after a restart", s.wait_for(b"/line 9_"), repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[A")
+check("history: Up again goes back one more", s.wait_for(b"/line 5_"), repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[A")
+s.pump(0.3)
+check("history: Up at the oldest stays", b"/line 5_" in s.out and b"/line 9_" not in s.out, repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[B")
+check("history: Down goes forward", s.wait_for(b"/line 9_"), repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[B")
+check("history: Down past the newest empties the prompt", s.wait_for(b"/_ "), repr(s.out[-100:]))
+s.mark(); s.send(b"x")
+s.send(b"\x1b[A")
+check("history: typing, then Up shows the newest", s.wait_for(b"/line 9_"), repr(s.out[-100:]))
+s.mark(); s.send(b"\x1b[B")
+check("history: Down brings back what was typed", s.wait_for(b"/x_"), repr(s.out[-100:]))
+s.send(b"\x15")                                   # Ctrl-u clears the prompt
+s.mark(); s.send(b"\x1b[A\x1b[A\r")                # recall the older one and search for it
+check("history: Enter searches for a recalled entry", s.wait_for(b"/line 5  1/11"), repr(s.out[-100:]))
+check("history: a repeated search moves to the end", read_hist(home) == b"line 9\nline 5\n", repr(read_hist(home)))
+check("history: q exits cleanly after recalling", quit_ok(s))
+
+# --no-history neither reads nor writes
+before = read_hist(home)
+s = Session([BIN, "--no-history", PATCH])
+s.wait_for(b"READ-ONLY")
+s.mark(); s.send(b"/"); s.send(b"\x1b[A")
+s.pump(0.5)
+check("--no-history: Up finds nothing", b"/_" in s.out and b"/line" not in s.out, repr(s.out[-100:]))
+s.send(b"\x1b")
+s.mark(); s.send(b"/zzz\r")
+check("--no-history: searching still works", s.wait_for(b"Not found: zzz"))
+check("--no-history: the file is untouched", read_hist(home) == before, repr(read_hist(home)))
+check("--no-history: q exits cleanly", quit_ok(s))
+p = subprocess.run([BIN, "--help"], capture_output=True)
+check("--help lists --no-history", b"--no-history" in p.stdout)
+
+# two windows at once: neither one throws the other's searches away
+home = new_home()
+a = Session([BIN, PATCH])
+b = Session([BIN, PATCH])
+a.wait_for(b"READ-ONLY"); b.wait_for(b"READ-ONLY")
+a.send(b"/alpha\r")
+check("two windows: first window searches", a.wait_for(b"Not found: alpha"))
+b.send(b"/beta\r")
+check("two windows: second window searches", b.wait_for(b"Not found: beta"))
+check("two windows: both searches are in the file", read_hist(home) == b"alpha\nbeta\n", repr(read_hist(home)))
+check("two windows: first quits", quit_ok(a))
+check("two windows: second quits", quit_ok(b))
+
+# a damaged file: bad lines are skipped, the rest is used, and the next save cleans it up
+home = new_home()
+with open(os.path.join(home, ".patchreader_history"), "wb") as f:
+    f.write(b"good one\n\x1b[31m\nbad\tline\r\ngood two\n\x00\xff\n" + b"a" * 200 + b"\n\n")
+s = Session([BIN, PATCH])
+s.wait_for(b"READ-ONLY")
+s.mark(); s.send(b"/")
+s.pump(0.2)
+s.mark(); s.send(b"\x1b[A")
+check("damaged history: the newest valid entry is recalled", s.wait_for(b"/good two_"), repr(s.out[-100:]))
+check("damaged history: no escape from the file reaches the screen", b"\x1b[31m" not in s.out)
+s.mark(); s.send(b"\x15q1\r")
+s.wait_for(b"Not found: q1")
+check("damaged history: the next save is clean", read_hist(home) == b"good one\ngood two\nq1\n", repr(read_hist(home)))
+check("damaged history: q exits cleanly", quit_ok(s))
+
+# a history that cannot be written must not get in the way
+if os.geteuid() != 0:
+    home = new_home()
+    os.chmod(home, 0o500)
+    s = Session([BIN, PATCH])
+    s.wait_for(b"READ-ONLY")
+    s.send(b"/line 5\r")
+    check("read-only home: the search still works", s.wait_for(b"/line 5  1/11"), repr(s.out[-100:]))
+    s.mark(); s.send(b"/line 9\r")
+    check("read-only home: and again", s.wait_for(b"/line 9  1/11"))
+    check("read-only home: nothing was written", os.listdir(home) == [], str(os.listdir(home)))
+    check("read-only home: q exits cleanly", quit_ok(s))
+    os.chmod(home, 0o700)
+
+for bad_home, label in (("relative-home-xyz", "relative HOME"), (None, "no HOME")):
+    old = os.environ.get("HOME")
+    if bad_home is None:
+        del os.environ["HOME"]
+    else:
+        os.environ["HOME"] = bad_home
+    s = Session([BIN, PATCH])
+    s.wait_for(b"READ-ONLY")
+    s.send(b"/line 5\r")
+    check(label + ": the search still works", s.wait_for(b"/line 5  1/11"), repr(s.out[-100:]))
+    s.mark(); s.send(b"/"); s.send(b"\x1b[A")
+    check(label + ": Up recalls it within the same run", s.wait_for(b"/line 5_"), repr(s.out[-100:]))
+    s.send(b"\x1b")
+    check(label + ": q exits cleanly", quit_ok(s))
+    check(label + ": nothing was created", not os.path.exists("relative-home-xyz") and not os.path.exists(".patchreader_history"))
+    os.environ["HOME"] = old
+
+for d in _homes:
+    try:
+        os.chmod(d, 0o700)
+    except OSError:
+        pass
+    shutil.rmtree(d, ignore_errors=True)
 os.unlink(PATCH)
 print("\n%d failure(s)" % fails)
 sys.exit(1 if fails else 0)

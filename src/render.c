@@ -341,6 +341,7 @@ static const char *const HELP[] = {
     " Search",
     "   /                       search the current file",
     "   n / N                   next / previous match",
+    "   Up / Down (in search)   earlier searches",
     "",
     " Other",
     "   ?                       this help",

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "history.h"
 #include "input.h"
 #include "model.h"
 #include "nav.h"
@@ -23,6 +24,7 @@ static void usage(FILE *out) {
           "options:\n"
           "  --no-color     draw without colors (also set by NO_COLOR)\n"
           "  --list         print one summary line per file and exit\n"
+          "  --no-history   do not read or write ~/.patchreader_history (earlier searches)\n"
           "  --dump         print every file's rows as plain text and exit\n"
           "  -h, --help     show this help\n"
           "  -V, --version  show version\n",
@@ -60,7 +62,18 @@ static bool want_truecolor(void) {
     return c && (strstr(c, "truecolor") || strstr(c, "24bit"));
 }
 
-static int run_ui(const Patch *patch, bool mono) {
+/* Adds the newest search to the history file. The file is read again first so
+ * that searches made in other windows are kept. Failing is fine: a history
+ * that cannot be written must not stop the viewer. */
+static void remember(const char *path, const Nav *n) {
+    History disk;
+    history_init(&disk);
+    history_load(&disk, path);
+    history_add(&disk, n->query, n->query_len);
+    history_save(&disk, path);
+}
+
+static int run_ui(const Patch *patch, bool mono, bool keep_history) {
     Model m;
     model_build(&m, patch, vec_at(&patch->files, 0));
     if (!term_init()) {
@@ -71,6 +84,12 @@ static int run_ui(const Patch *patch, bool mono) {
 
     Nav nav;
     nav_init(&nav, patch->files.len);
+    History hist;
+    history_init(&hist);
+    char hpath[1024];
+    bool persist = keep_history && history_path(hpath, sizeof hpath);
+    if (persist) history_load(&hist, hpath);
+    nav.hist = &hist;
     RenderView v;
     memset(&v, 0, sizeof v);
     v.file_count = patch->files.len;
@@ -113,6 +132,10 @@ static int run_ui(const Patch *patch, bool mono) {
             model_free(&m);
             model_build(&m, patch, vec_at(&patch->files, nav.file));
         }
+        if (nav.hist_dirty) {
+            nav.hist_dirty = false;
+            if (persist) remember(hpath, &nav);
+        }
     }
     term_restore();
     buf_free(&frame);
@@ -123,6 +146,7 @@ static int run_ui(const Patch *patch, bool mono) {
 int main(int argc, char **argv) {
     bool list = false;
     bool dump = false;
+    bool keep_history = true;
     const char *no_color_env = getenv("NO_COLOR");
     bool mono = no_color_env != NULL && no_color_env[0] != '\0';
     int i = 1;
@@ -134,6 +158,10 @@ int main(int argc, char **argv) {
         }
         if (strcmp(a, "--no-color") == 0) {
             mono = true;
+            continue;
+        }
+        if (strcmp(a, "--no-history") == 0) {
+            keep_history = false;
             continue;
         }
         if (strcmp(a, "--dump") == 0) {
@@ -192,7 +220,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (!dump && !list && isatty(STDOUT_FILENO)) {
-        int rc = run_ui(&patch, mono);
+        int rc = run_ui(&patch, mono, keep_history);
         patch_free(&patch);
         buf_free(&buf);
         return rc;

@@ -42,6 +42,7 @@ Needs a C11 compiler and a POSIX system. Tested on macOS (clang) and Linux (gcc)
 patchreader [options] <patch-file | ->
 
   --no-color     draw without colors (also set by NO_COLOR)
+  --no-history   do not read or write the search history
   --list         print one summary line per file and exit
   --dump         print every file's rows as plain text and exit
   -h, --help     -V, --version
@@ -67,11 +68,25 @@ rows and changed words are shown in reverse video.
 | `}` `{`, `J` `K` | next / previous hunk |
 | `]` `[`, `Tab` `Shift-Tab` | next / previous file |
 | `f` | file list (`j`/`k`, `Enter` opens, `Esc` closes) |
-| `/` | search the current file (smart case); `n` `N` next / previous match |
+| `/` | search the current file (smart case); `n` `N` next / previous match; `Up` `Down` in the prompt: earlier searches |
 | `?` | help |
 | `q` | quit |
 
 Ctrl-C and Ctrl-Z work as usual.
+
+### Search history
+
+Searches are remembered between runs in `~/.patchreader_history`, up to the
+last 100, one per line. In the `/` prompt `Up` goes back through them and
+`Down` forward; going past the newest brings back what you had typed, and a
+recalled search can be edited before `Enter`. The file is private (mode 0600),
+is replaced atomically, and is re-read before each save so several windows do
+not overwrite each other. If `HOME` is unset or not writable, history simply
+lasts for the current run. `--no-history` turns it off completely.
+
+This file is the only thing patchreader ever writes. Patches are opened
+read-only, and `make audit` checks that no other code can create, change or
+remove a file.
 
 ## Supported input
 
@@ -95,7 +110,7 @@ malformed input is reported with its line number. Combined diffs (`@@@`, from
 ```
 make test    # unit tests, built with ASan and UBSan, including fuzz-style tests
 make pty     # drives the real program in a pseudo-terminal (python3)
-make audit   # source audit (no unsafe calls, nothing opened for writing) + leak check
+make audit   # source audit (no unsafe calls, only the history module writes a file) + leak check
 make bench   # large-input timing gate
 make fuzz    # long-running fuzzer; FUZZ_SECONDS=120 make fuzz
 make check   # test, pty, audit and bench
@@ -115,6 +130,7 @@ to `fuzz-crash.diff`.
 | `src/worddiff.c` | changed words between two lines |
 | `src/text.c` | UTF-8, display width, safe text windows |
 | `src/search.c` | substring search |
+| `src/history.c` | search history file: load, save (the only code that writes a file) |
 | `src/input.c`, `src/term.c` | key decoder; raw mode, signals, resize |
 | `src/nav.c` | viewer state and key handling |
 | `src/render.c` | frames: header, gutters, rows, bottom bar, file list, help |

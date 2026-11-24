@@ -89,6 +89,9 @@ static void exercise(const Patch *p) {
     Model m;
     Nav nav;
     nav_init(&nav, files);
+    History hist;
+    history_init(&hist);
+    nav.hist = &hist;
     model_build(&m, p, vec_at(&p->files, 0));
     Buf frame;
     buf_init(&frame);
@@ -141,6 +144,10 @@ static void exercise(const Patch *p) {
             fail("search prompt not terminated");
         if (nav.query_len >= sizeof nav.query || nav.query[nav.query_len] != '\0')
             fail("search query not terminated");
+        if (hist.count > HISTORY_MAX) fail("search history over its limit");
+        if (nav.mode == NAV_SEARCH && nav.hist_pos != SIZE_MAX && nav.hist_pos >= hist.count)
+            fail("history position out of range");
+        nav.hist_dirty = false;
     }
     buf_free(&frame);
     model_free(&m);

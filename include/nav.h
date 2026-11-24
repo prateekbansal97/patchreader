@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "history.h"
 #include "input.h"
 #include "model.h"
 
@@ -30,6 +31,11 @@ typedef struct {
     char input[NAV_TEXT_MAX];      /* query being typed */
     size_t input_len;
     size_t hit;                    /* row of the current match, SIZE_MAX if none */
+    History *hist;                 /* earlier searches, NULL when none are kept */
+    size_t hist_pos;               /* entry shown in the prompt, SIZE_MAX when typing fresh text */
+    char draft[NAV_TEXT_MAX];      /* what was typed before browsing the history */
+    size_t draft_len;
+    bool hist_dirty;               /* a search was added: The caller saves the history */
     char status[NAV_TEXT_MAX + 64]; /* message for the bottom bar, "" if none */
 } Nav;
 

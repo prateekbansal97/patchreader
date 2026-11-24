@@ -417,6 +417,226 @@ static void test_nav_search_input(void) {
     fx_close(&x);
 }
 
+/* ---- search history in the prompt ---- */
+
+static void test_nav_history(void) {
+    Fx x;
+    History h;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+
+    /* without a history the arrow keys do nothing in the prompt */
+    press(&x, ch('/'), 24, 80);
+    type(&x, "ab");
+    press(&x, K(KEY_UP, 0), 24, 80);
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(strcmp(n->input, "ab") == 0 && n->mode == NAV_SEARCH && n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_ENTER, 0), 24, 80); /* and a search is not recorded anywhere */
+    CHECK(!n->hist_dirty);
+
+    /* an empty history does nothing either */
+    history_init(&h);
+    n->hist = &h;
+    press(&x, ch('/'), 24, 80);
+    type(&x, "ab");
+    press(&x, K(KEY_UP, 0), 24, 80);
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(strcmp(n->input, "ab") == 0 && n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+    CHECK(h.count == 0 && !n->hist_dirty); /* Esc records nothing */
+
+    /* a committed search is recorded and flagged for saving */
+    search(&x, "one", 24);
+    CHECK(h.count == 1 && strcmp(h.items[0], "one") == 0 && n->hist_dirty);
+    n->hist_dirty = false;
+    search(&x, "alpha", 24);
+    CHECK(h.count == 2 && n->hist_dirty);
+    n->hist_dirty = false;
+    search(&x, "one", 24); /* a repeat moves to the end */
+    CHECK(h.count == 2 && strcmp(h.items[0], "alpha") == 0 && strcmp(h.items[1], "one") == 0);
+    CHECK(n->hist_dirty);
+    n->hist_dirty = false;
+    search(&x, "", 24); /* Enter on an empty prompt repeats the query, records nothing */
+    CHECK(h.count == 2 && !n->hist_dirty);
+    search(&x, "zzz", 24); /* a search that finds nothing is still remembered */
+    CHECK(strcmp(n->status, "Not found: zzz") == 0);
+    CHECK(h.count == 3 && strcmp(h.items[2], "zzz") == 0 && n->hist_dirty);
+    n->hist_dirty = false;
+    /* history is now: alpha, one, zzz */
+
+    /* Up goes back through the list and stops at the oldest */
+    press(&x, ch('/'), 24, 80);
+    CHECK(n->hist_pos == SIZE_MAX && n->input_len == 0);
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "zzz") == 0 && n->hist_pos == 2);
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "one") == 0);
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "alpha") == 0 && n->hist_pos == 0);
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "alpha") == 0 && n->hist_pos == 0);
+    CHECK(n->input_len == 5 && n->mode == NAV_SEARCH);
+    /* Down comes forward, and past the newest the prompt is empty again */
+    press(&x, K(KEY_DOWN, 0), 24, 80); CHECK(strcmp(n->input, "one") == 0);
+    press(&x, K(KEY_DOWN, 0), 24, 80); CHECK(strcmp(n->input, "zzz") == 0);
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(n->input_len == 0 && n->input[0] == '\0' && n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_DOWN, 0), 24, 80); /* nothing newer: no change */
+    CHECK(n->input_len == 0 && n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+    CHECK(n->mode == NAV_VIEW && !n->hist_dirty && h.count == 3);
+
+    /* what was being typed comes back after browsing */
+    press(&x, ch('/'), 24, 80);
+    type(&x, "xy");
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "zzz") == 0);
+    press(&x, K(KEY_UP, 0), 24, 80); CHECK(strcmp(n->input, "one") == 0);
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(strcmp(n->input, "xy") == 0 && n->input_len == 2 && n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+
+    /* an entry can be edited before Enter; the edited text is recorded */
+    press(&x, ch('/'), 24, 80);
+    press(&x, K(KEY_UP, 0), 24, 80);
+    type(&x, "q");
+    CHECK(strcmp(n->input, "zzzq") == 0);
+    press(&x, K(KEY_BACKSPACE, 0), 24, 80);
+    press(&x, K(KEY_BACKSPACE, 0), 24, 80);
+    type(&x, "!");
+    CHECK(strcmp(n->input, "zz!") == 0);
+    press(&x, K(KEY_CTRL, 'u'), 24, 80);
+    type(&x, "zzzq");
+    press(&x, K(KEY_ENTER, 0), 24, 80);
+    CHECK(strcmp(n->query, "zzzq") == 0 && n->mode == NAV_VIEW);
+    CHECK(h.count == 4 && strcmp(h.items[3], "zzzq") == 0 && n->hist_dirty);
+    n->hist_dirty = false;
+    /* history is now: alpha, one, zzz, zzzq */
+
+    /* each "/" starts at the newest entry again */
+    press(&x, ch('/'), 24, 80);
+    press(&x, K(KEY_UP, 0), 24, 80);
+    press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(strcmp(n->input, "zzz") == 0);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+    press(&x, ch('/'), 24, 80);
+    CHECK(n->hist_pos == SIZE_MAX);
+    press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(strcmp(n->input, "zzzq") == 0);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+
+    /* Enter on a recalled entry runs that search and moves it to the end */
+    n->top = 0;
+    press(&x, ch('/'), 24, 80);
+    for (int i = 0; i < 3; i++) press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(strcmp(n->input, "one") == 0);
+    press(&x, K(KEY_ENTER, 0), 24, 80);
+    CHECK(strcmp(n->query, "one") == 0 && n->hit == 2 && strcmp(n->status, "/one  1/4") == 0);
+    CHECK(h.count == 4 && strcmp(h.items[3], "one") == 0 && strcmp(h.items[2], "zzzq") == 0);
+    CHECK(n->hist_dirty);
+    n->hist_dirty = false;
+
+    /* outside the prompt the same keys still scroll and never touch the history */
+    n->top = 3;
+    size_t pos_before = n->hist_pos;
+    press(&x, K(KEY_UP, 0), 5, 80); /* 5 rows: a short window, so there is room to scroll */
+    CHECK(n->mode == NAV_VIEW && n->top == 2);
+    CHECK(n->hist_pos == pos_before && h.count == 4 && !n->hist_dirty);
+    press(&x, K(KEY_DOWN, 0), 5, 80);
+    CHECK(n->top == 3 && n->hist_pos == pos_before && h.count == 4);
+    fx_close(&x);
+}
+
+static void test_nav_history_edges(void) {
+    Fx x;
+    History h;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+    history_init(&h);
+    n->hist = &h;
+
+    /* the longest entry fits the prompt, and so does the longest draft */
+    char longq[HISTORY_TEXT];
+    memset(longq, 'm', sizeof longq);
+    CHECK(history_add(&h, longq, HISTORY_TEXT - 1));
+    press(&x, ch('/'), 24, 80);
+    for (int i = 0; i < 200; i++) press(&x, ch('a'), 24, 80);
+    CHECK(n->input_len == sizeof n->input - 1); /* the prompt is full */
+    press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(n->input_len == HISTORY_TEXT - 1 && memcmp(n->input, longq, HISTORY_TEXT - 1) == 0);
+    CHECK(n->input[n->input_len] == '\0');
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(n->input_len == sizeof n->input - 1);
+    CHECK(strspn(n->input, "a") == n->input_len); /* the draft, whole */
+    press(&x, K(KEY_ESC, 0), 24, 80);
+
+    /* a position left over from a longer list is not trusted */
+    history_init(&h);
+    CHECK(history_add(&h, "a", 1) && history_add(&h, "b", 1) && history_add(&h, "c", 1));
+    n->mode = NAV_SEARCH;
+    n->input_len = 0;
+    n->input[0] = '\0';
+    n->hist_pos = 50;
+    press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(strcmp(n->input, "c") == 0 && n->hist_pos == 2);
+    n->hist_pos = 50;
+    press(&x, K(KEY_DOWN, 0), 24, 80);
+    CHECK(n->hist_pos == SIZE_MAX && strcmp(n->input, "c") == 0);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+
+    /* multi-byte entries come back intact and can be edited by character */
+    history_init(&h);
+    CHECK(history_add(&h, "caf\xc3\xa9 \xe6\x97\xa5", 9));
+    press(&x, ch('/'), 24, 80);
+    press(&x, K(KEY_UP, 0), 24, 80);
+    CHECK(strcmp(n->input, "caf\xc3\xa9 \xe6\x97\xa5") == 0);
+    press(&x, K(KEY_BACKSPACE, 0), 24, 80);
+    CHECK(strcmp(n->input, "caf\xc3\xa9 ") == 0);
+    fx_close(&x);
+}
+
+static void test_nav_history_random(void) {
+    static const KeyType types[] = {KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_UP,
+                                    KEY_UP, KEY_DOWN, KEY_DOWN, KEY_ENTER, KEY_ENTER, KEY_ESC,
+                                    KEY_BACKSPACE, KEY_CTRL, KEY_TAB, KEY_PGUP, KEY_PGDN, KEY_HOME,
+                                    KEY_END, KEY_LEFT, KEY_RIGHT};
+    static const uint32_t chars[] = {'a', 'b', 'c', '/', '/', 'j', 'k', 'n', 'q', 'f', '?', ' ',
+                                     0xE9, 0x65E5, 'o', 'e', '1', 0x07};
+    Fx x;
+    History h;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+    history_init(&h);
+    n->hist = &h;
+    int bad = 0, recorded = 0;
+    for (int i = 0; i < 50000; i++) {
+        Key k;
+        k.type = types[rnd() % (sizeof types / sizeof types[0])];
+        k.ch = chars[rnd() % (sizeof chars / sizeof chars[0])];
+        if (k.type == KEY_CTRL) k.ch = rnd() & 1 ? 'u' : 'd';
+        n->quit = false;
+        n->hist_dirty = false;
+        press(&x, k, (int)(1 + rnd() % 30), (int)(1 + rnd() % 100));
+
+        if (n->input_len >= sizeof n->input || strlen(n->input) != n->input_len) bad++;
+        if (n->query_len >= sizeof n->query || strlen(n->query) != n->query_len) bad++;
+        if (h.count > HISTORY_MAX) bad++;
+        if (n->mode == NAV_SEARCH && n->hist_pos != SIZE_MAX && n->hist_pos >= h.count) bad++;
+        if (n->hist_dirty) {
+            /* the search just made is the newest entry */
+            recorded++;
+            if (h.count == 0 || strcmp(h.items[h.count - 1], n->query) != 0) bad++;
+        }
+        if (i % 500 == 0) {
+            for (size_t e = 0; e < h.count; e++) {
+                size_t len = strlen(h.items[e]);
+                if (len == 0 || len >= HISTORY_TEXT) bad++;
+                for (size_t j = e + 1; j < h.count; j++)
+                    if (strcmp(h.items[e], h.items[j]) == 0) bad++;
+            }
+        }
+    }
+    CHECK(bad == 0);
+    CHECK(recorded > 100);
+    fx_close(&x);
+}
+
 /* ---- file list ---- */
 
 static void test_nav_picker(void) {
@@ -811,6 +1031,8 @@ static void test_render_help(void) {
     CHECK(has(&s, 3, "scroll one line"));
     CHECK(has(&s, 12, "file list"));
     CHECK(has(&s, 15, "search the current file"));
+    CHECK(has(&s, 17, "Up / Down (in search)"));
+    CHECK(has(&s, 17, "earlier searches"));
     CHECK(starts(&s, 24, " any key closes the help"));
     CHECK(ends(&s, 24, " READ-ONLY "));
     CHECK(!has(&s, 4, "alpha")); /* no diff rows behind the help */
@@ -1156,6 +1378,9 @@ int main(void) {
     test_nav_search_scroll();
     test_nav_search_edge();
     test_nav_search_input();
+    test_nav_history();
+    test_nav_history_edges();
+    test_nav_history_random();
     test_nav_picker();
     test_nav_picker_scroll();
     test_nav_help();
