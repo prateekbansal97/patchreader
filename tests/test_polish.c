@@ -183,10 +183,11 @@ static void fx_load(Fx *x, size_t file) {
     x->built = 1;
 }
 
-static int fx_open(Fx *x) {
+static int fx_open_text(Fx *x, const char *text) {
     ParseError err;
     buf_init(&x->src);
-    make_patch(&x->src);
+    if (text) buf_puts(&x->src, text);
+    else make_patch(&x->src);
     x->built = 0;
     if (patch_parse(&x->p, x->src.data, x->src.len, &err) != 0) {
         patch_free(&x->p);
@@ -194,8 +195,13 @@ static int fx_open(Fx *x) {
         return 0;
     }
     nav_init(&x->nav, x->p.files.len);
+    x->nav.patch = &x->p;
     fx_load(x, 0);
     return 1;
+}
+
+static int fx_open(Fx *x) {
+    return fx_open_text(x, NULL);
 }
 
 static void fx_close(Fx *x) {
@@ -637,6 +643,370 @@ static void test_nav_history_random(void) {
     fx_close(&x);
 }
 
+/* ---- search in all files (F) ---- */
+
+/* Every match of q, in file order, found the slow way: a model per file. */
+typedef struct {
+    size_t f, r;
+} Hit;
+
+static size_t all_hits(const Fx *x, const char *q, Hit *out, size_t cap) {
+    size_t qn = strlen(q), n = 0;
+    bool ic = search_icase(q, qn);
+    for (size_t f = 0; f < x->p.files.len; f++) {
+        Model m;
+        model_build(&m, &x->p, vec_at(&x->p.files, f));
+        for (size_t i = 0; i < m.rows.len; i++) {
+            const Row *r = vec_at(&m.rows, i);
+            if (search_find(r->text, r->len, q, qn, ic, 0) != SIZE_MAX && n < cap) {
+                out[n].f = f;
+                out[n].r = i;
+                n++;
+            }
+        }
+        model_free(&m);
+    }
+    return n;
+}
+
+/* "F" + text + Enter; true when the shown file changed. */
+static bool search_all(Fx *x, const char *text, int rows) {
+    press(x, ch('F'), rows, 80);
+    type(x, text);
+    return press(x, K(KEY_ENTER, 0), rows, 80);
+}
+
+static void test_nav_search_all(void) {
+    Fx x;
+    History h;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+    history_init(&h);
+    n->hist = &h;
+    /* "one" is on a.c rows 2, 5, 8, 10 and c.c row 2 */
+
+    /* F opens a prompt for all files, / one for the current file */
+    press(&x, ch('F'), 24, 80);
+    CHECK(n->mode == NAV_SEARCH && n->typing_all && n->input_len == 0);
+    type(&x, "one");
+    CHECK(strcmp(n->input, "one") == 0);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+    CHECK(n->mode == NAV_VIEW && !n->scope_all && n->query_len == 0); /* Esc changes nothing */
+    press(&x, ch('/'), 24, 80);
+    CHECK(n->mode == NAV_SEARCH && !n->typing_all);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+
+    CHECK(!search_all(&x, "one", 24));
+    CHECK(n->scope_all && n->file == 0 && n->hit == 2 && n->mode == NAV_VIEW);
+    CHECK(strcmp(n->status, "/one  1/5  a.c") == 0);
+    CHECK(h.count == 1 && strcmp(h.items[0], "one") == 0 && n->hist_dirty); /* it is remembered too */
+
+    CHECK(!press(&x, ch('n'), 24, 80)); CHECK(n->hit == 5 && strcmp(n->status, "/one  2/5  a.c") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80)); CHECK(n->hit == 8 && strcmp(n->status, "/one  3/5  a.c") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80)); CHECK(n->hit == 10 && strcmp(n->status, "/one  4/5  a.c") == 0);
+
+    /* the next match is in another file: the caller is told to rebuild the model */
+    CHECK(press(&x, ch('n'), 24, 80));
+    CHECK(n->file == 2 && n->hit == 2 && n->left == 0);
+    CHECK(x.m.file == vec_at(&x.p.files, 2)); /* press() rebuilt it */
+    CHECK(strcmp(n->status, "/one  5/5  c.c") == 0);
+
+    /* past the last match of the last file it wraps to the first file */
+    CHECK(press(&x, ch('n'), 24, 80));
+    CHECK(n->file == 0 && n->hit == 2 && strcmp(n->status, "/one  1/5  a.c  (wrapped)") == 0);
+
+    /* and backwards */
+    CHECK(press(&x, ch('N'), 24, 80));
+    CHECK(n->file == 2 && n->hit == 2 && strcmp(n->status, "/one  5/5  c.c  (wrapped)") == 0);
+    CHECK(press(&x, ch('N'), 24, 80));
+    CHECK(n->file == 0 && n->hit == 10 && strcmp(n->status, "/one  4/5  a.c") == 0);
+    CHECK(!press(&x, ch('N'), 24, 80));
+    CHECK(n->hit == 8 && strcmp(n->status, "/one  3/5  a.c") == 0);
+
+    /* switching files by hand drops the match; n then starts from the new file */
+    n->hist_dirty = false;
+    CHECK(press(&x, ch(']'), 24, 80));
+    CHECK(n->file == 1 && n->hit == SIZE_MAX && n->scope_all);
+    CHECK(press(&x, ch('n'), 24, 80)); /* b.c has no match: on to c.c */
+    CHECK(n->file == 2 && n->hit == 2 && strcmp(n->status, "/one  5/5  c.c") == 0);
+    CHECK(press(&x, ch('['), 24, 80));
+    CHECK(n->file == 1);
+    CHECK(press(&x, ch('N'), 24, 80)); /* and back past it to a.c */
+    CHECK(n->file == 0 && n->hit == 10 && strcmp(n->status, "/one  4/5  a.c") == 0);
+    CHECK(!n->hist_dirty); /* n and N record nothing */
+    fx_close(&x);
+}
+
+static void test_nav_search_all_cases(void) {
+    Fx x;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+
+    /* a word that is only in the middle file */
+    CHECK(search_all(&x, "y", 24));
+    CHECK(n->file == 1 && n->hit == 3 && strcmp(n->status, "/y  1/1  b.c") == 0);
+    CHECK(x.m.file == vec_at(&x.p.files, 1));
+    CHECK(!press(&x, ch('n'), 24, 80)); /* the only match, again: wrapped, same file */
+    CHECK(n->file == 1 && n->hit == 3 && strcmp(n->status, "/y  1/1  b.c  (wrapped)") == 0);
+    CHECK(!press(&x, ch('N'), 24, 80));
+    CHECK(n->file == 1 && n->hit == 3 && strcmp(n->status, "/y  1/1  b.c  (wrapped)") == 0);
+
+    /* nothing anywhere: the file and the view stay put */
+    n->top = 0;
+    CHECK(!search_all(&x, "zzz", 24));
+    CHECK(strcmp(n->status, "Not found: zzz") == 0 && n->hit == SIZE_MAX && n->file == 1);
+    CHECK(!press(&x, ch('n'), 24, 80));
+    CHECK(strcmp(n->status, "Not found: zzz") == 0 && n->file == 1);
+
+    /* smart case works as in a single file */
+    CHECK(press(&x, ch('['), 24, 80)); /* back to a.c, so nothing is "wrapped" */
+    CHECK(!search_all(&x, "Beta", 24));
+    CHECK(n->file == 0 && n->hit == 3 && strcmp(n->status, "/Beta  1/1  a.c") == 0);
+    CHECK(!search_all(&x, "beta", 24)); /* all lower: any case; a new query starts at the top */
+    CHECK(n->hit == 3 && strcmp(n->status, "/beta  1/2  a.c") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80));
+    CHECK(n->hit == 4 && strcmp(n->status, "/beta  2/2  a.c") == 0);
+
+    /* hunk text is searched too, like with / */
+    CHECK(!search_all(&x, "int main", 24));
+    CHECK(n->file == 0 && n->hit == 1 && strncmp(n->status, "/int main  1/1  a.c", 19) == 0);
+    fx_close(&x);
+}
+
+static void test_nav_search_all_start(void) {
+    Fx x;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+
+    /* the search starts at the top of the screen, not at the file start */
+    n->top = 6;
+    CHECK(!search_all(&x, "one", 24));
+    CHECK(n->file == 0 && n->hit == 8 && strcmp(n->status, "/one  3/5  a.c") == 0);
+
+    /* in the last file there is no later match: it wraps to the first file */
+    fx_close(&x);
+    REQUIRE(fx_open(&x));
+    n = &x.nav;
+    press(&x, ch(']'), 24, 80);
+    press(&x, ch(']'), 24, 80);
+    CHECK(n->file == 2);
+    CHECK(!search_all(&x, "one", 24)); /* c.c row 2 is at or after the top: no jump needed */
+    CHECK(n->file == 2 && n->hit == 2 && strcmp(n->status, "/one  5/5  c.c") == 0);
+    CHECK(press(&x, ch('N'), 24, 80));
+    CHECK(n->file == 0 && n->hit == 10 && strcmp(n->status, "/one  4/5  a.c") == 0);
+
+    /* a new query on a view that has scrolled past the matches wraps forward */
+    fx_close(&x);
+    REQUIRE(fx_open(&x));
+    n = &x.nav;
+    n->top = 9; /* a.c rows 9.. : only row 10 and c.c's match are ahead */
+    CHECK(!search_all(&x, "alpha", 5)); /* one match, above the view: wraps to it */
+    CHECK(n->file == 0 && n->hit == 2 && strcmp(n->status, "/alpha  1/1  a.c  (wrapped)") == 0);
+    fx_close(&x);
+}
+
+static void test_nav_search_all_scopes(void) {
+    Fx x;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+
+    CHECK(!search_all(&x, "one", 24));
+    CHECK(n->scope_all && n->hit == 2);
+
+    /* / with an empty prompt repeats the query for this file only */
+    search(&x, "", 24);
+    CHECK(!n->scope_all);
+    CHECK(n->hit == 5 && strcmp(n->status, "/one  2/4") == 0); /* no file name, 4 in a.c */
+    for (int i = 0; i < 2; i++) press(&x, ch('n'), 24, 80);
+    CHECK(n->hit == 10 && strcmp(n->status, "/one  4/4") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80)); /* wraps inside a.c, never leaves it */
+    CHECK(n->file == 0 && n->hit == 2 && strcmp(n->status, "/one  1/4  (wrapped)") == 0);
+
+    /* F with an empty prompt repeats it for all files */
+    press(&x, ch('F'), 24, 80);
+    press(&x, K(KEY_ENTER, 0), 24, 80);
+    CHECK(n->scope_all && n->hit == 5 && strcmp(n->status, "/one  2/5  a.c") == 0);
+
+    /* opening the other prompt and cancelling it keeps the scope */
+    press(&x, ch('/'), 24, 80);
+    CHECK(!n->typing_all && n->scope_all);
+    press(&x, K(KEY_ESC, 0), 24, 80);
+    CHECK(n->scope_all);
+    for (int i = 0; i < 3; i++) press(&x, ch('n'), 24, 80); /* 8, 10, then c.c */
+    CHECK(n->file == 2 && strcmp(n->status, "/one  5/5  c.c") == 0);
+    fx_close(&x);
+}
+
+static void test_nav_search_all_fallbacks(void) {
+    Fx x;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+
+    /* without the patch there is only the current file */
+    n->patch = NULL;
+    CHECK(!search_all(&x, "one", 24));
+    CHECK(n->hit == 2 && strcmp(n->status, "/one  1/4") == 0);
+    for (int i = 0; i < 4; i++) CHECK(!press(&x, ch('n'), 24, 80));
+    CHECK(n->file == 0 && strcmp(n->status, "/one  1/4  (wrapped)") == 0);
+    fx_close(&x);
+
+    /* a one-file patch has no files to name */
+    REQUIRE(fx_open_text(&x, "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n one\n-x\n+one two\n"));
+    n = &x.nav;
+    CHECK(!search_all(&x, "one", 24));
+    CHECK(n->hit == 2 && strcmp(n->status, "/one  1/2") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80));
+    CHECK(n->hit == 4 && strcmp(n->status, "/one  2/2") == 0);
+    CHECK(!press(&x, ch('n'), 24, 80));
+    CHECK(n->hit == 2 && strcmp(n->status, "/one  1/2  (wrapped)") == 0);
+    fx_close(&x);
+
+    /* files that are only a note (binary, rename) are searched by their note */
+    REQUIRE(fx_open_text(&x,
+                         "diff --git a/i.png b/i.png\nBinary files a/i.png and b/i.png differ\n"
+                         "diff --git a/o b/q\nsimilarity index 100%\nrename from o\nrename to q\n"
+                         "diff --git a/t b/t\n--- a/t\n+++ b/t\n@@ -1 +1 @@\n-a\n+b\n"));
+    n = &x.nav;
+    CHECK(search_all(&x, "Renamed", 24));
+    CHECK(n->file == 1 && n->hit == 0 && strcmp(n->status, "/Renamed  1/1  q") == 0);
+    CHECK(search_all(&x, "shown", 24));
+    CHECK(n->file == 0 && n->hit == 0 && strncmp(n->status, "/shown  1/1  i.png", 18) == 0);
+    fx_close(&x);
+}
+
+/* The view after a jump into a long file: the match is on screen. */
+static void test_nav_search_all_scroll(void) {
+    Buf b;
+    buf_init(&b);
+    buf_puts(&b, "diff --git a/s b/s\n--- a/s\n+++ b/s\n@@ -1 +1 @@\n-a\n+b\n");
+    buf_puts(&b, "diff --git a/big b/big\nnew file mode 100644\n--- /dev/null\n+++ b/big\n@@ -0,0 +1,100 @@\n");
+    for (int i = 1; i <= 100; i++) {
+        char s[32];
+        snprintf(s, sizeof s, "+line %d\n", i);
+        buf_puts(&b, s);
+    }
+    Fx x;
+    REQUIRE(fx_open_text(&x, b.data));
+    Nav *n = &x.nav;
+    buf_free(&b);
+
+    /* big.txt: row 0 wave, 1 hunk, "line N" on row N + 1; 102 rows */
+    n->left = 5;
+    CHECK(search_all(&x, "line 90", 24)); /* 22 body rows: a third is 7 */
+    CHECK(n->file == 1 && n->hit == 91 && n->left == 0);
+    CHECK(n->top == 91 - 7);                 /* near the match ... */
+    nav_clamp(n, &x.m, 24, 80);              /* ... and fitted to the new file, like main() */
+    CHECK(n->top == 102 - 22);
+    CHECK(n->hit >= n->top && n->hit < n->top + 22);
+
+    /* a tiny window */
+    CHECK(press(&x, ch('['), 5, 80));
+    CHECK(search_all(&x, "line 50", 5)); /* body 3 rows, a third is 1 */
+    CHECK(n->file == 1 && n->hit == 51 && n->top == 50);
+    nav_clamp(n, &x.m, 5, 80);
+    CHECK(n->hit >= n->top && n->hit < n->top + 3);
+
+    /* a match near the top of a file: no negative position */
+    CHECK(press(&x, ch('['), 24, 80));
+    CHECK(search_all(&x, "line 1", 24)); /* "line 1", "line 10" ...: the first is row 2 */
+    CHECK(n->file == 1 && n->hit == 2 && n->top == 0);
+    fx_close(&x);
+}
+
+/* The next and previous match always agree with a list built the slow way. */
+static void test_nav_search_all_model(void) {
+    static const char *const queries[] = {"one", "e", "a", "t", "Beta", "beta", "@@", "int main",
+                                          " ", "x", "y", "zzz", "~", "main", "-", "+", "c"};
+    for (size_t qi = 0; qi < sizeof queries / sizeof queries[0]; qi++) {
+        const char *q = queries[qi];
+        Fx x;
+        REQUIRE(fx_open(&x));
+        Nav *n = &x.nav;
+        Hit want[256];
+        size_t total = all_hits(&x, q, want, 256);
+
+        search_all(&x, q, 24);
+        if (total == 0) {
+            CHECK(strncmp(n->status, "Not found", 9) == 0 && n->file == 0);
+            fx_close(&x);
+            continue;
+        }
+        size_t idx = 0;
+        int bad = 0;
+        if (n->file != want[0].f || n->hit != want[0].r) bad++;
+        for (int dir = 0; dir < 2; dir++) {
+            for (size_t step = 0; step < 2 * total + 1; step++) {
+                size_t prev = idx;
+                bool wrapped;
+                if (dir == 0) {
+                    press(&x, ch('n'), 24, 80);
+                    idx = (idx + 1) % total;
+                    wrapped = prev == total - 1;
+                } else {
+                    press(&x, ch('N'), 24, 80);
+                    idx = (idx + total - 1) % total;
+                    wrapped = prev == 0;
+                }
+                char exp[256];
+                snprintf(exp, sizeof exp, "/%s  %zu/%zu  %s%s", q, idx + 1, total,
+                         filediff_path(vec_at(&x.p.files, want[idx].f)), wrapped ? "  (wrapped)" : "");
+                if (n->file != want[idx].f || n->hit != want[idx].r) bad++;
+                if (x.m.file != vec_at(&x.p.files, n->file)) bad++;
+                if (strcmp(n->status, exp) != 0) {
+                    fprintf(stderr, "  query \"%s\": got \"%s\", wanted \"%s\"\n", q, n->status, exp);
+                    bad++;
+                }
+            }
+        }
+        CHECK(bad == 0);
+        fx_close(&x);
+    }
+}
+
+/* Random keys with both kinds of search: the match is always a real match in
+ * the file that is shown. */
+static void test_nav_search_all_random(void) {
+    static const KeyType types[] = {KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_CHAR, KEY_ENTER,
+                                    KEY_ENTER, KEY_ESC, KEY_BACKSPACE, KEY_UP, KEY_DOWN, KEY_PGDN,
+                                    KEY_PGUP, KEY_HOME, KEY_END, KEY_TAB, KEY_BTAB, KEY_CTRL};
+    static const uint32_t chars[] = {'F', 'F', '/', '/', 'n', 'n', 'N', 'N', ']', '[', 'o', 'n',
+                                     'e', 'y', 'x', 'a', ' ', 'g', 'G', 'j', 'k', 'f', '?', '}'};
+    Fx x;
+    REQUIRE(fx_open(&x));
+    Nav *n = &x.nav;
+    int bad = 0, jumps = 0;
+    for (int i = 0; i < 60000; i++) {
+        Key k;
+        k.type = types[rnd() % (sizeof types / sizeof types[0])];
+        k.ch = chars[rnd() % (sizeof chars / sizeof chars[0])];
+        if (k.type == KEY_CTRL) k.ch = 'u';
+        int rows = (int)(1 + rnd() % 30), cols = (int)(1 + rnd() % 100);
+        n->quit = false;
+        size_t file_before = n->file;
+        press(&x, k, rows, cols);
+        nav_clamp(n, &x.m, rows, cols);
+        if (n->file != file_before) jumps++;
+
+        if (n->file >= n->file_count) bad++;
+        if (x.m.file != vec_at(&x.p.files, n->file)) bad++;
+        if (n->top > render_max_top(&x.m, rows) || n->left > render_max_left(&x.m, cols)) bad++;
+        if (n->input_len >= sizeof n->input || strlen(n->input) != n->input_len) bad++;
+        if (n->hit != SIZE_MAX) {
+            if (n->hit >= x.m.rows.len) {
+                bad++;
+            } else if (n->mode == NAV_VIEW && n->query_len > 0) {
+                const Row *r = vec_at(&x.m.rows, n->hit);
+                if (search_find(r->text, r->len, n->query, n->query_len,
+                                search_icase(n->query, n->query_len), 0) == SIZE_MAX)
+                    bad++; /* the remembered match is not one */
+            }
+        }
+    }
+    CHECK(bad == 0);
+    CHECK(jumps > 100);
+    fx_close(&x);
+}
+
 /* ---- file list ---- */
 
 static void test_nav_picker(void) {
@@ -1031,8 +1401,10 @@ static void test_render_help(void) {
     CHECK(has(&s, 3, "scroll one line"));
     CHECK(has(&s, 12, "file list"));
     CHECK(has(&s, 15, "search the current file"));
-    CHECK(has(&s, 17, "Up / Down (in search)"));
-    CHECK(has(&s, 17, "earlier searches"));
+    CHECK(has(&s, 16, "search all files"));
+    CHECK(has(&s, 17, "next / previous match"));
+    CHECK(has(&s, 18, "Up / Down (in search)"));
+    CHECK(has(&s, 18, "earlier searches"));
     CHECK(starts(&s, 24, " any key closes the help"));
     CHECK(ends(&s, 24, " READ-ONLY "));
     CHECK(!has(&s, 4, "alpha")); /* no diff rows behind the help */
@@ -1203,6 +1575,15 @@ static void test_render_bar(void) {
     CHECK(ends(&s, 12, " READ-ONLY  100% "));
     CHECK(geometry_ok(&s, 12, 80));
     scr_free(&s);
+
+    /* the prompt of a search in all files says so */
+    v.typing_all = true;
+    draw(&v, &s);
+    CHECK(starts(&s, 12, "all/ab_"));
+    CHECK(ends(&s, 12, " READ-ONLY  100% "));
+    CHECK(geometry_ok(&s, 12, 80));
+    scr_free(&s);
+    v.typing_all = false;
 
     v.input = "\xc3\xa9\xe6\x97\xa5";
     v.input_len = 5;
@@ -1381,6 +1762,14 @@ int main(void) {
     test_nav_history();
     test_nav_history_edges();
     test_nav_history_random();
+    test_nav_search_all();
+    test_nav_search_all_cases();
+    test_nav_search_all_start();
+    test_nav_search_all_scopes();
+    test_nav_search_all_fallbacks();
+    test_nav_search_all_scroll();
+    test_nav_search_all_model();
+    test_nav_search_all_random();
     test_nav_picker();
     test_nav_picker_scroll();
     test_nav_help();

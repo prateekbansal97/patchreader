@@ -162,7 +162,8 @@ static void draw_bar(Buf *o, const Theme *t, const RenderView *v, size_t cols) {
     Buf left;
     buf_init(&left);
     if (v->typing) {
-        buf_putc(&left, '/');
+        if (v->typing_all) buf_puts(&left, "all/");
+        else buf_putc(&left, '/');
         buf_append(&left, v->input ? v->input : "", v->input ? v->input_len : 0);
         buf_putc(&left, '_');
     } else if (v->help) {
@@ -340,6 +341,7 @@ static const char *const HELP[] = {
     "",
     " Search",
     "   /                       search the current file",
+    "   F                       search all files",
     "   n / N                   next / previous match",
     "   Up / Down (in search)   earlier searches",
     "",

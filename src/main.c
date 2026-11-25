@@ -84,6 +84,7 @@ static int run_ui(const Patch *patch, bool mono, bool keep_history) {
 
     Nav nav;
     nav_init(&nav, patch->files.len);
+    nav.patch = patch;
     History hist;
     history_init(&hist);
     char hpath[1024];
@@ -112,6 +113,7 @@ static int run_ui(const Patch *patch, bool mono, bool keep_history) {
         v.pick_top = nav.pick_top;
         v.help = nav.mode == NAV_HELP;
         v.typing = nav.mode == NAV_SEARCH;
+        v.typing_all = nav.typing_all;
         v.input = nav.input;
         v.input_len = nav.input_len;
         v.query = nav.query;

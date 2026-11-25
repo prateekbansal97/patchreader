@@ -69,6 +69,7 @@ rows and changed words are shown in reverse video.
 | `]` `[`, `Tab` `Shift-Tab` | next / previous file |
 | `f` | file list (`j`/`k`, `Enter` opens, `Esc` closes) |
 | `/` | search the current file (smart case); `n` `N` next / previous match; `Up` `Down` in the prompt: earlier searches |
+| `F` | search all files; `n` `N` then go on into the other files and wrap around the whole patch |
 | `?` | help |
 | `q` | quit |
 

@@ -458,6 +458,67 @@ for bad_home, label in (("relative-home-xyz", "relative HOME"), (None, "no HOME"
     check(label + ": nothing was created", not os.path.exists("relative-home-xyz") and not os.path.exists(".patchreader_history"))
     os.environ["HOME"] = old
 
+# ---- 7. search in all files (F): n and N go on into the other files ----
+# "three" is in src/a.c and src/b.c, not in big.txt (the first file)
+home = new_home()
+s = Session([BIN, PATCH])
+check("F: the UI starts on file 1", s.wait_for(b"1/3 files"), repr(s.out[-60:]))
+s.mark(); s.send(b"F")
+check("F: the prompt says all/", s.wait_for(b"all/_"), repr(s.out[-80:]))
+s.mark(); s.send(b"three")
+check("F: typing shows all/three_", s.wait_for(b"all/three_"), repr(s.out[-80:]))
+s.mark(); s.send(b"\r")
+check("F: Enter jumps to the first match, in another file",
+      s.wait_for(b"/three  1/2  src/a.c") and b"2/3 files" in s.out, repr(s.out[-120:]))
+check("F: the match is highlighted in the new file", b"48;2;214;178;62" in s.out)
+s.mark(); s.send(b"n")
+check("n: on to the next file", s.wait_for(b"/three  2/2  src/b.c") and b"3/3 files" in s.out, repr(s.out[-120:]))
+s.mark(); s.send(b"n")
+check("n: wraps around to the first match", s.wait_for(b"/three  1/2  src/a.c  (wrapped)") and b"2/3 files" in s.out, repr(s.out[-120:]))
+s.mark(); s.send(b"N")
+check("N: wraps backwards", s.wait_for(b"/three  2/2  src/b.c  (wrapped)") and b"3/3 files" in s.out, repr(s.out[-120:]))
+s.mark(); s.send(b"N")
+check("N: and back to the first file", s.wait_for(b"/three  1/2  src/a.c") and b"2/3 files" in s.out, repr(s.out[-120:]))
+
+# / still searches the file that is shown, and says no file name
+s.mark(); s.send(b"/two\r")
+check("/ after F: this file only, no file name", s.wait_for(b"/two  1/1") and b"src/" not in s.out.split(b"/two  1/1")[-1][:20] and b"2/3 files" in s.out, repr(s.out[-120:]))
+s.mark(); s.send(b"F")
+s.send(b"nothing-like-this\r")
+check("F: not found leaves the file alone", s.wait_for(b"Not found: nothing-like-this"), repr(s.out[-100:]))
+s.mark(); s.send(b"n")
+s.pump(0.3)
+check("F: n after not found stays put", b"3/3" not in s.out and b"1/3" not in s.out, repr(s.out[-100:]))
+s.mark(); s.send(b"F\x1b")
+s.pump(0.3)
+check("F then Esc: the prompt goes away", b"all/_" in s.out and b"q quit" in s.out.split(b"all/_")[-1], repr(s.out[-100:]))
+check("F: q exits cleanly", quit_ok(s))
+
+# the history is shared: a search made with F is offered by / the next time
+s = Session([BIN, PATCH])
+s.wait_for(b"1/3 files")
+s.send(b"Fthree\r")
+s.wait_for(b"/three  1/2  src/a.c")
+saved = read_hist(home) or b""   # the first session saved "two" and "nothing-like-this" too
+check("F: the search is saved to the history, newest last", saved.endswith(b"\nthree\n") and saved.count(b"three") == 1, repr(saved))
+check("F: q exits cleanly after saving", quit_ok(s))
+s = Session([BIN, PATCH])
+s.wait_for(b"1/3 files")
+s.send(b"F")
+s.pump(0.2)
+s.mark(); s.send(b"\x1b[A")
+check("F: Up recalls it in the next run", s.wait_for(b"all/three_"), repr(s.out[-100:]))
+s.send(b"\x1b")
+check("F: q exits cleanly after recalling", quit_ok(s))
+
+# the help page lists it
+s = Session([BIN, PATCH])
+s.wait_for(b"1/3 files")
+s.mark(); s.send(b"?")
+check("help lists F", s.wait_for(b"search all files") and b"search the current file" in s.out, repr(s.out[-100:]))
+s.send(b"x")
+check("help: q exits cleanly", quit_ok(s))
+
 for d in _homes:
     try:
         os.chmod(d, 0o700)

@@ -25,6 +25,7 @@ typedef struct {
     const char *query;  /* active search, highlighted in the rows (may be NULL) */
     size_t query_len;
     bool typing;        /* the bottom bar shows the query being typed */
+    bool typing_all;    /* ... and it searches all files */
     const char *input;
     size_t input_len;
     const char *status; /* message for the bottom bar (may be NULL or "") */

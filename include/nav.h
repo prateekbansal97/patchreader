@@ -31,12 +31,15 @@ typedef struct {
     char input[NAV_TEXT_MAX];      /* query being typed */
     size_t input_len;
     size_t hit;                    /* row of the current match, SIZE_MAX if none */
+    const Patch *patch;            /* every file, for searching all of them (may be NULL) */
+    bool typing_all;               /* the prompt being typed searches all files */
+    bool scope_all;                /* the active search covers all files */
     History *hist;                 /* earlier searches, NULL when none are kept */
     size_t hist_pos;               /* entry shown in the prompt, SIZE_MAX when typing fresh text */
     char draft[NAV_TEXT_MAX];      /* what was typed before browsing the history */
     size_t draft_len;
     bool hist_dirty;               /* a search was added: The caller saves the history */
-    char status[NAV_TEXT_MAX + 64]; /* message for the bottom bar, "" if none */
+    char status[NAV_TEXT_MAX + 160]; /* message for the bottom bar, "" if none */
 } Nav;
 
 void nav_init(Nav *n, size_t file_count);
@@ -45,7 +48,8 @@ void nav_init(Nav *n, size_t file_count);
 void nav_clamp(Nav *n, const Model *m, int rows, int cols);
 
 /* Applies one key to the state; m is the model of the current file.
- * Returns true when the shown file changed: the caller must then rebuild
+ * Returns true when the shown file changed (also when a search of all files
+ * jumps to a match in another file): the caller must then rebuild
  * the model for n->file (top and left are already reset to 0). */
 bool nav_key(Nav *n, Key k, const Model *m, int rows, int cols);
 

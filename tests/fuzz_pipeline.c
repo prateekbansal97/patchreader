@@ -75,7 +75,7 @@ static Key random_key(void) {
                                     KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_PGUP, KEY_PGDN, KEY_HOME,
                                     KEY_END, KEY_DEL, KEY_TAB, KEY_BTAB, KEY_ENTER, KEY_BACKSPACE,
                                     KEY_ESC, KEY_RESIZE, KEY_NONE};
-    static const char chars[] = "jkhlgGbn ]['{}JK0$f?/xeaz\x01";
+    static const char chars[] = "jkhlgGbn ]['{}JK0$f?/xeaz" "FFnN\x01";
     Key k;
     k.type = types[rnd() % (sizeof types / sizeof types[0])];
     k.ch = (uint32_t)(unsigned char)chars[rnd() % (sizeof chars - 1)];
@@ -89,6 +89,7 @@ static void exercise(const Patch *p) {
     Model m;
     Nav nav;
     nav_init(&nav, files);
+    nav.patch = p;
     History hist;
     history_init(&hist);
     nav.hist = &hist;

@@ -109,6 +109,34 @@ static void run(const char *name, const Buf *src, double far_left_limit) {
             model_build(&m, &p, vec_at(&p.files, i % p.files.len));
         }
         gate("20 file switches", now() - t, 1.0);
+
+        /* A search of all files builds the rows of every other file on each step. */
+        model_free(&m);
+        model_build(&m, &p, vec_at(&p.files, 0));
+        Nav all;
+        nav_init(&all, p.files.len);
+        all.patch = &p;
+        t = now();
+        nav_key(&all, key(KEY_CHAR, 'F'), &m, 50, 200);
+        nav_key(&all, key(KEY_CHAR, 'z'), &m, 50, 200);
+        nav_key(&all, key(KEY_CHAR, 'q'), &m, 50, 200);
+        nav_key(&all, key(KEY_ENTER, 0), &m, 50, 200); /* nowhere: every file is scanned */
+        gate("search all (no match)", now() - t, 2.0);
+
+        nav_init(&all, p.files.len);
+        all.patch = &p;
+        t = now();
+        nav_key(&all, key(KEY_CHAR, 'F'), &m, 50, 200);
+        nav_key(&all, key(KEY_CHAR, 'l'), &m, 50, 200);
+        nav_key(&all, key(KEY_CHAR, 'i'), &m, 50, 200);
+        nav_key(&all, key(KEY_ENTER, 0), &m, 50, 200);
+        for (size_t i = 0; i < 20; i++) {
+            if (nav_key(&all, key(KEY_CHAR, 'n'), &m, 50, 200)) {
+                model_free(&m);
+                model_build(&m, &p, vec_at(&p.files, all.file));
+            }
+        }
+        gate("search all (20 steps)", now() - t, 3.0);
     }
     buf_free(&f);
     model_free(&m);

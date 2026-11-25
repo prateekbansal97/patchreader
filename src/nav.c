@@ -68,60 +68,113 @@ static bool row_matches(const Nav *n, const Row *r, bool icase) {
     return search_find(r->text, r->len, n->query, n->query_len, icase, 0) != SIZE_MAX;
 }
 
-/* Moves to the next (dir > 0) or previous match of the active query in the
- * current file, wrapping around at the ends. */
-static void search_step(Nav *n, const Model *m, int dir, int rows) {
+/* Moves to the next (dir > 0) or previous match of the active query, wrapping
+ * around at the ends. A search of all files goes through every file of the
+ * patch in order and may land in another file: the result is then true, and
+ * the caller must rebuild the model (top is already near the match, nav_clamp
+ * fits it to the new file). */
+static bool search_step(Nav *n, const Model *m, int dir, int rows) {
     if (n->query_len == 0) {
         snprintf(n->status, sizeof n->status, "No search pattern");
-        return;
+        return false;
     }
     bool icase = search_icase(n->query, n->query_len);
+    bool all = n->scope_all && n->patch != NULL && n->patch->files.len > 1;
+    size_t nfiles = all ? n->patch->files.len : 1;
     bool have = n->hit != SIZE_MAX && n->hit < m->rows.len;
     size_t from_next = have ? n->hit + 1 : n->top;
     size_t from_prev = have ? n->hit : n->top;
-    size_t first = SIZE_MAX, last = SIZE_MAX, next = SIZE_MAX, prev = SIZE_MAX, total = 0;
-    for (size_t i = 0; i < m->rows.len; i++) {
-        if (!row_matches(n, vec_at(&m->rows, i), icase)) continue;
-        total++;
-        if (first == SIZE_MAX) first = i;
-        last = i;
-        if (next == SIZE_MAX && i >= from_next) next = i;
-        if (i < from_prev) prev = i;
+
+    /* Matches are ordered by (file, row); the search starts at (n->file, from_*). */
+    size_t first_f = SIZE_MAX, first_r = SIZE_MAX, last_f = SIZE_MAX, last_r = SIZE_MAX;
+    size_t next_f = SIZE_MAX, next_r = SIZE_MAX, next_ord = 0;
+    size_t prev_f = SIZE_MAX, prev_r = SIZE_MAX, prev_ord = 0;
+    size_t total = 0;
+    for (size_t k = 0; k < nfiles; k++) {
+        size_t f = all ? k : n->file;
+        Model other;
+        const Model *mm = m;
+        bool built = f != n->file;
+        if (built) {
+            model_build(&other, n->patch, vec_at(&n->patch->files, f));
+            mm = &other;
+        }
+        for (size_t i = 0; i < mm->rows.len; i++) {
+            if (!row_matches(n, vec_at(&mm->rows, i), icase)) continue;
+            total++;
+            if (first_f == SIZE_MAX) {
+                first_f = f;
+                first_r = i;
+            }
+            last_f = f;
+            last_r = i;
+            if (next_f == SIZE_MAX && (f > n->file || (f == n->file && i >= from_next))) {
+                next_f = f;
+                next_r = i;
+                next_ord = total;
+            }
+            if (f < n->file || (f == n->file && i < from_prev)) {
+                prev_f = f;
+                prev_r = i;
+                prev_ord = total;
+            }
+        }
+        if (built) model_free(&other);
     }
     if (total == 0) {
         n->hit = SIZE_MAX;
         snprintf(n->status, sizeof n->status, "Not found: %s", n->query);
-        return;
+        return false;
     }
+
     bool wrapped = false;
-    size_t found;
+    size_t found_f, found_r, ordinal;
     if (dir > 0) {
-        found = next;
-        if (found == SIZE_MAX) {
-            found = first;
+        if (next_f != SIZE_MAX) {
+            found_f = next_f;
+            found_r = next_r;
+            ordinal = next_ord;
+        } else {
+            found_f = first_f;
+            found_r = first_r;
+            ordinal = 1;
             wrapped = true;
         }
     } else {
-        found = prev;
-        if (found == SIZE_MAX) {
-            found = last;
+        if (prev_f != SIZE_MAX) {
+            found_f = prev_f;
+            found_r = prev_r;
+            ordinal = prev_ord;
+        } else {
+            found_f = last_f;
+            found_r = last_r;
+            ordinal = total;
             wrapped = true;
         }
     }
-    size_t ordinal = 0;
-    for (size_t i = 0; i <= found; i++)
-        if (row_matches(n, vec_at(&m->rows, i), icase)) ordinal++;
 
-    n->hit = found;
+    bool changed = found_f != n->file;
     size_t body = render_body_rows(rows);
-    size_t end;
-    if (found < n->top || !checked_add(n->top, body, &end) || found >= end) {
-        n->top = found > body / 3 ? found - body / 3 : 0;
-        size_t max_top = render_max_top(m, rows);
-        if (n->top > max_top) n->top = max_top;
+    n->hit = found_r;
+    if (changed) {
+        n->file = found_f;
+        n->left = 0;
+        n->top = found_r > body / 3 ? found_r - body / 3 : 0;
+    } else {
+        size_t end;
+        if (found_r < n->top || !checked_add(n->top, body, &end) || found_r >= end) {
+            n->top = found_r > body / 3 ? found_r - body / 3 : 0;
+            size_t max_top = render_max_top(m, rows);
+            if (n->top > max_top) n->top = max_top;
+        }
     }
-    snprintf(n->status, sizeof n->status, "/%s  %zu/%zu%s", n->query, ordinal, total,
-             wrapped ? "  (wrapped)" : "");
+    if (all)
+        snprintf(n->status, sizeof n->status, "/%s  %zu/%zu  %.48s%s", n->query, ordinal, total,
+                 filediff_path(vec_at(&n->patch->files, found_f)), wrapped ? "  (wrapped)" : "");
+    else
+        snprintf(n->status, sizeof n->status, "/%s  %zu/%zu%s", n->query, ordinal, total,
+                 wrapped ? "  (wrapped)" : "");
+    return changed;
 }
 
 static void history_show(Nav *n, const char *s, size_t len) {
@@ -153,7 +206,7 @@ static void history_step(Nav *n, int dir) {
     history_show(n, h->items[n->hist_pos], strlen(h->items[n->hist_pos]));
 }
 
-static void search_key(Nav *n, Key k, const Model *m, int rows) {
+static bool search_key(Nav *n, Key k, const Model *m, int rows) {
     switch (k.type) {
     case KEY_EOF: n->quit = true; break;
     case KEY_ESC: n->mode = NAV_VIEW; break;
@@ -165,8 +218,8 @@ static void search_key(Nav *n, Key k, const Model *m, int rows) {
             n->hit = SIZE_MAX;
             if (n->hist != NULL && history_add(n->hist, n->query, n->query_len)) n->hist_dirty = true; 
         }
-        search_step(n, m, +1, rows);
-        break;
+        n->scope_all = n->typing_all;
+        return search_step(n, m, +1, rows);
     case KEY_UP: history_step(n, -1); break;
     case KEY_DOWN: history_step(n, +1); break;
     case KEY_BACKSPACE:
@@ -200,6 +253,7 @@ static void search_key(Nav *n, Key k, const Model *m, int rows) {
         break;
     default: break;
     }
+    return false;
 }
 
 static void pick_fit(Nav *n, int rows) {
@@ -270,10 +324,7 @@ bool nav_key(Nav *n, Key k, const Model *m, int rows, int cols) {
     size_t h;
 
     if (n->mode == NAV_PICK) return pick_key(n, k, rows);
-    if (n->mode == NAV_SEARCH) {
-        search_key(n, k, m, rows);
-        return false;
-    }
+    if (n->mode == NAV_SEARCH) return search_key(n, k, m, rows);
     if (n->mode == NAV_HELP) {
         if (k.type == KEY_EOF) n->quit = true;
         else if (k.type != KEY_RESIZE && k.type != KEY_NONE) n->mode = NAV_VIEW;
@@ -335,9 +386,17 @@ bool nav_key(Nav *n, Key k, const Model *m, int rows, int cols) {
             n->input_len = 0;
             n->input[0] = '\0';
             n->hist_pos = SIZE_MAX;
+            n->typing_all = false;
             break;
-        case 'n': search_step(n, m, +1, rows); break;
-        case 'N': search_step(n, m, -1, rows); break;
+        case 'F':
+            n->mode = NAV_SEARCH;
+            n->input_len = 0;
+            n->input[0] = '\0';
+            n->hist_pos = SIZE_MAX;
+            n->typing_all = true;
+            break;
+        case 'n': return search_step(n, m, +1, rows);
+        case 'N': return search_step(n, m, -1, rows);
         case ']': return step_file(n, +1);
         case '[': return step_file(n, -1);
         default: break;
