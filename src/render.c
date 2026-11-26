@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "search.h"
@@ -190,9 +191,75 @@ static void draw_bar(Buf *o, const Theme *t, const RenderView *v, size_t cols) {
     buf_free(&left);
 }
 
-/* The changed words of an added or removed row, found against its partner
- * row. Returns false when the whole row should be drawn plainly. */
-static bool word_spans(const Model *m, const Row *r, Vec *spans) {
+/* The change block a frame is drawing: removed rows followed by added rows,
+ * compared as a whole once, however many of its rows are on screen. */
+typedef struct {
+    bool valid;   /* [first, end) is a block that was looked at */
+    size_t first, end;
+    bool ok;      /* word marks were found for it */
+    Vec spans;    /* BlockSpan; line = model row - first */
+} BlockCache;
+
+/* Finds the change block around row idx and compares it. A row that is not
+ * in a change of removed and added rows, or in one that is too large, leaves
+ * ok false: such rows fall back to their partner row. */
+static void block_load(const Model *m, size_t idx, BlockCache *bc) {
+    size_t n = m->rows.len;
+    const Row *rows = m->rows.data;
+    bc->valid = true;
+    bc->ok = false;
+    bc->first = idx;
+    bc->end = idx + 1;
+    bc->spans.len = 0;
+
+    size_t limit = WORDDIFF_BLOCK_MAX_LINES;
+    size_t a0 = idx, d0;
+    if (rows[idx].kind == ROW_ADD) {
+        while (a0 > 0 && rows[a0 - 1].kind == ROW_ADD && idx - a0 <= limit) a0--;
+        d0 = a0;
+        while (d0 > 0 && rows[d0 - 1].kind == ROW_DEL && idx - d0 <= limit) d0--;
+    } else {
+        d0 = idx;
+        while (d0 > 0 && rows[d0 - 1].kind == ROW_DEL && idx - d0 <= limit) d0--;
+        a0 = idx;
+    }
+    if (rows[idx].kind == ROW_DEL)
+        while (a0 < n && rows[a0].kind == ROW_DEL && a0 - d0 <= limit) a0++;
+    size_t a1 = a0;
+    while (a1 < n && rows[a1].kind == ROW_ADD && a1 - d0 <= limit) a1++;
+    if (a1 - d0 > limit || a0 == d0 || a1 == a0) return; /* too big, or only one side */
+    if (idx < d0 || idx >= a1) return;
+
+    bc->first = d0;
+    bc->end = a1;
+    BlockLine *lines = xmalloc((a1 - d0) * sizeof *lines);
+    for (size_t i = d0; i < a1; i++) {
+        lines[i - d0].text = rows[i].text;
+        lines[i - d0].len = rows[i].len;
+    }
+    bc->ok = word_diff_block(lines, a0 - d0, a1 - a0, &bc->spans);
+    free(lines);
+}
+
+/* The changed words of an added or removed row: found by comparing its whole
+ * change block, or, when the block is too large or too different, against the
+ * row's partner. Returns false when the whole row should be drawn plainly. */
+static bool word_spans(const Model *m, size_t idx, BlockCache *bc, Vec *spans) {
+    const Row *r = vec_at(&m->rows, idx);
+    if (r->kind != ROW_ADD && r->kind != ROW_DEL) return false;
+    if (!bc->valid || idx < bc->first || idx >= bc->end) block_load(m, idx, bc);
+    if (bc->ok) {
+        for (size_t i = 0; i < bc->spans.len; i++) {
+            const BlockSpan *b = vec_at(&bc->spans, i);
+            if (b->line + bc->first == idx) {
+                Span *sp = vec_push(spans);
+                *sp = b->span;
+            } else if (b->line + bc->first > idx) {
+                break;
+            }
+        }
+        return spans->len > 0;
+    }
     if (!r->has_pair) return false;
     const Row *p = vec_at(&m->rows, r->pair);
     Vec other;
@@ -271,7 +338,8 @@ static void draw_text_row(Buf *o, const Theme *t, const RenderView *v, const Row
     buf_puts(o, t->reset);
 }
 
-static void draw_diff_row(Buf *o, const Theme *t, const RenderView *v, const Row *r, size_t cols) {
+static void draw_diff_row(Buf *o, const Theme *t, const RenderView *v, const Row *r, size_t idx, 
+                          size_t cols, BlockCache *bc) {
     const Model *m = v->model;
     size_t left = v->left;
     const char *gutter_style = t->ctx_gutter;
@@ -308,7 +376,7 @@ static void draw_diff_row(Buf *o, const Theme *t, const RenderView *v, const Row
         vec_init(&spans, sizeof(Span));
         if (search_marks(v, r, &spans)) {
             shown = draw_words(o, r, &spans, text_style, t->match, left, cw);
-        } else if (word_spans(m, r, &spans)) {
+        } else if (word_spans(m, idx, bc, &spans)) {
             shown = draw_words(o, r, &spans, text_style,
                                r->kind == ROW_ADD ? t->add_word : t->del_word, left, cw);
         } else {
@@ -378,6 +446,9 @@ void render_frame(Buf *out, const RenderView *v) {
     draw_header(out, t, v, cols);
 
     size_t h = render_body_rows(v->rows);
+    BlockCache bc;
+    memset(&bc, 0, sizeof bc);
+    vec_init(&bc.spans, sizeof(BlockSpan));
     for (size_t i = 0; i < h; i++) {
         move_to(out, i + 2);
         if (v->help) {
@@ -394,7 +465,7 @@ void render_frame(Buf *out, const RenderView *v) {
             const Row *r = vec_at(&v->model->rows, idx);
             if (r->kind == ROW_WAVE) draw_wave_row(out, t, cols);
             else if (r->kind == ROW_HUNK || r->kind == ROW_NOTE) draw_text_row(out, t, v, r, cols);
-            else draw_diff_row(out, t, v, r, cols);
+            else draw_diff_row(out, t, v, r, idx, cols, &bc);
         } else {
             buf_puts(out, "\x1b[0m\x1b[2K");
         }
@@ -404,4 +475,5 @@ void render_frame(Buf *out, const RenderView *v) {
         move_to(out, (size_t)v->rows);
         draw_bar(out, t, v, cols);
     }
+    vec_free(&bc.spans);
 }

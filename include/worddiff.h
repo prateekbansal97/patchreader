@@ -21,4 +21,28 @@ typedef struct {
  * different for word marks to be useful: the whole row is changed then. */
 bool word_diff(const char *a, size_t an, const char *b, size_t bn, Vec *sa, Vec *sb);
 
+/* One line of a change block. */
+typedef struct {
+    const char *text;
+    size_t len;
+} BlockLine;
+
+/* A changed byte range inside line `line` of a block. */
+typedef struct {
+    size_t line;
+    Span span;
+} BlockSpan;
+
+/* Blocks with more lines than this are compared line by line instead. */
+#define WORDDIFF_BLOCK_MAX_LINES 200
+
+/* Compares a whole change block: lines[0..nd) are the removed lines and
+ * lines[nd..nd+na) the added ones. Both sides are compared as one text (with
+ * a line break between lines), so an inserted line shows up as a whole and a
+ * changed line is matched with its real counterpart, wherever it sits.
+ * Appends the changed ranges of every line to out (a Vec of BlockSpan),
+ * sorted by line, then by position. Returns false and appends nothing when
+ * the block is too large or too different for word marks to be useful. */
+bool word_diff_block(const BlockLine *lines, size_t nd, size_t na, Vec *out);
+
 #endif
